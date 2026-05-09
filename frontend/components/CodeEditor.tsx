@@ -3,6 +3,8 @@
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useMemo, useRef, useState } from 'react';
 
+const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
+
 const starterCode = `function fibonacci(n) {
   if (n <= 1) return n;
   return fibonacci(n - 1) + fibonacci(n - 2);
@@ -138,7 +140,7 @@ export default function CodeEditor() {
     }
 
     try {
-      const response = await fetch('/api/execute', {
+      const response = await fetch(executionApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, timeoutMs: 1000 }),

@@ -1,0 +1,14 @@
+{
+  "name": "@codeflowviz/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "acorn": "^8.16.0",
+    "express": "^4.19.2"
+  }
+}
