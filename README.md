@@ -23,12 +23,12 @@
 > Replace this placeholder with a production screenshot at `docs/assets/execution-cockpit-void.png` once the cockpit capture is finalized.
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ CODEFLOWVIZ EXECUTION COCKPIT · VOID                                        │
+┌────────────────────────────────────────────────────────────────────────────┐
+│ CODEFLOWVIZ EXECUTION COCKPIT · VOID                                       │
 ├───────────────────────────────┬───────────────────────┬────────────────────┤
 │ Monaco Code Pane              │ Timeline / Scrubber   │ Variable Inspector │
 │  ▸ active line illumination   │  step 001 ━━━━━●────  │  value  number  6  │
-│  ▸ AST trace markers          │  step into / over / out│  result number  8  │
+│  ▸ AST trace markers          │  step into / over/ out│  result number  8  │
 │  ▸ sandbox execution status   │  replay snapshots     │  logs   structured │
 └───────────────────────────────┴───────────────────────┴────────────────────┘
 ```
