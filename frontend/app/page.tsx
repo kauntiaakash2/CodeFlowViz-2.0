@@ -1,5 +1,5 @@
 import CodeEditor from '@/components/CodeEditor';
-
+import Button from '@/components/ui/Button';
 export default function HomePage() {
   return (
     <main className="shell">
@@ -15,9 +15,9 @@ export default function HomePage() {
         <aside className="panel left">
           <h2>Flow Controls</h2>
           <p>Execute JavaScript through AST instrumentation, then replay assignment snapshots and loop checkpoints.</p>
-          <button disabled>Step Into</button>
-          <button disabled>Step Over</button>
-          <button disabled>Reset</button>
+          <Button>Step Into</Button>
+          <Button>Step Over</Button>
+          <Button disabled>Reset</Button>
         </aside>
 
         <section className="panel editor">
