@@ -341,3 +341,57 @@ button {
   font-style: italic;
   text-align: center !important;
 }
+
+.primary-button {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  font-family: monospace;
+  padding: 8px 16px; 
+  border-radius: 4px; /* Ostré HUD rohy */
+  border: 1px solid rgba(89, 249, 57, 0.7);
+  background: rgba(5, 15, 5, 0.85); /* Temné neonové sklo */
+  box-shadow: 
+    0px 0px 4px rgba(89, 249, 57, 0.3),
+    0px 0px 12px rgba(89, 249, 57, 0.15);
+  transition: all 0.2s ease-in-out;
+}
+
+.primary-button:hover {
+  border-color: rgba(89, 249, 57, 1);
+  background: rgba(10, 40, 10, 0.3); 
+  box-shadow: 
+    0px 0px 6px rgba(89, 249, 57, 0.8),
+    0px 0px 18px rgba(89, 249, 57, 0.4);
+}
+
+.primary-button span {
+  color: #c2ffd4; 
+  font-weight: 400; /* Krásně tenké a ostré */
+  font-family: monospace;
+  line-height: 1.2;
+  letter-spacing: 1px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-shadow: 
+    0px 0px 1px rgba(89, 249, 57, 0.6),
+    0px 0px 4px rgba(89, 249, 57, 0.3);
+  transition: all 0.2s ease-in-out;
+}
+
+.primary-button:hover span {
+  color: #59f939; 
+  font-family: monospace;
+  line-height: 1.2;
+  text-shadow: 
+    0px 0px 2px rgba(89, 249, 57, 1),
+    0px 0px 8px rgba(89, 249, 57, 0.6);
+}
+
+.primary-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  filter: grayscale(1);
+  border-color: #555;
+}
