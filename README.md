@@ -234,11 +234,32 @@ The backend responds with trace telemetry consumed by the timeline and variable 
 
 ## Open Source Program Context
 
-This repository is prepared for **GirlScript Summer of Code (GSSoC)** contributions and mentoring workflows.
+This repository is prepared for **GirlScript Summer of Code (GSSoC) 2026** contributions and mentoring workflows.
 
 > Note: **GSSoC** refers to **GirlScript Summer of Code**, not Google Summer of Code (GSoC).
 
-If you are contributing through GSSoC, please mention the relevant issue number and program context in your pull request description so maintainers can track contributions accurately.
+### GSSoC 2026 status and timeline
+
+- **Application status**: Accepted (Project Admin track context provided by contributor).
+- **Contribution window**: **15 May 2026 to 14 August 2026**.
+- **Last day to submit pull requests**: **14 August 2026**.
+- **Results, certificates, and prizes**: **September 2026**.
+
+### Issue and PR workflow for GSSoC 2026
+
+If you are contributing through GSSoC 2026, follow this flow for issues:
+
+1. Use project filters (for example, "Good First Issues") and shortlist multiple issues before starting work.
+2. Comment on the issue to claim it (example: `Hi, I am a GSSoC 2026 contributor and would like to work on this.`).
+3. Wait for maintainer/admin acknowledgement before opening a large PR.
+4. In your PR description, include:
+   - the issue number,
+   - the GSSoC 2026 context,
+   - what you tried and what changed.
+
+### Points and label reminder
+
+For contributors, points are awarded only when PRs are merged with required review and the expected GSSoC labels (including approval). PRs marked invalid/spam/AI-slop are not eligible for points.
 
 ## Contributing
 
