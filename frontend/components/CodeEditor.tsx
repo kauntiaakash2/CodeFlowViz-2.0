@@ -170,9 +170,14 @@ export default function CodeEditor() {
   return (
     <div className="codeRunner">
       <div className="runnerToolbar">
-        <Button type="button" onClick={runCode} disabled={isRunning}>
-            {isRunning ? 'Tracing…' : 'Trace Execution'}
-        </Button>
+       <Button
+  className="primaryAction"
+  type="button"
+  onClick={runCode}
+  disabled={isRunning}
+>
+  {isRunning ? 'Tracing…' : 'Trace Execution'}
+</Button>
         <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
       </div>
 
