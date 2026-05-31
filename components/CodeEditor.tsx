@@ -1,7 +1,7 @@
 'use client';
 
-import Editor, { type Monaco } from '@monaco-editor/react';
-import { useMemo, useState } from 'react';
+import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
+import { useMemo, useRef, useState } from 'react';
 
 const starterCode = `function fibonacci(n: number): number {
   if (n <= 1) return n;
@@ -9,11 +9,12 @@ const starterCode = `function fibonacci(n: number): number {
 }
 
 const value = 6;
-const result = fibonacci(value);
+const result = fibonacci(value); 
 console.log({ value, result });`;
 
 export default function CodeEditor() {
   const [code, setCode] = useState(starterCode);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   const options = useMemo(
     () => ({
@@ -29,7 +30,7 @@ export default function CodeEditor() {
       tabSize: 2,
       padding: { top: 16, bottom: 16 },
     }),
-    []
+    [] 
   );
 
   const handleEditorWillMount = (monaco: Monaco) => {
@@ -54,6 +55,10 @@ export default function CodeEditor() {
     });
   };
 
+  const handleEditorMount: OnMount = (editor) => {
+  editorRef.current = editor; 
+}; 
+
   return (
     <Editor
       height="100%"
@@ -61,8 +66,9 @@ export default function CodeEditor() {
       value={code}
       onChange={(value) => setCode(value ?? '')}
       beforeMount={handleEditorWillMount}
+      onMount={handleEditorMount} 
       theme="void"
       options={options}
     />
   );
-}
+} 
