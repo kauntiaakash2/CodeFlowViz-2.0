@@ -1,7 +1,9 @@
+
 'use client';
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useMemo, useRef, useState } from 'react';
+import Button from '@/components/Button';
 
 const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
 
@@ -168,9 +170,14 @@ export default function CodeEditor() {
   return (
     <div className="codeRunner">
       <div className="runnerToolbar">
-        <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
-          {isRunning ? 'Tracing…' : 'Trace Execution'}
-        </button>
+       <Button
+  className="primaryAction"
+  type="button"
+  onClick={runCode}
+  disabled={isRunning}
+>
+  {isRunning ? 'Tracing…' : 'Trace Execution'}
+</Button>
         <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
       </div>
 
