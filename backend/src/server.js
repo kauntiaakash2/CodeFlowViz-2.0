@@ -78,8 +78,11 @@ function runInSandbox(code, timeoutMs) {
   });
 }
 
-app.get('/health', (_request, response) => {
-  response.json({ ok: true, service: 'codeflowviz-backend' });
+app.get('/api/health', (_request, response) => {
+  response.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.post('/api/execute', async (request, response) => {
