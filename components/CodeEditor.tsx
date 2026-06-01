@@ -8,7 +8,7 @@ const starterCode = `function fibonacci(n: number): number {
   return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-const value = 6;
+const value = 6; 
 const result = fibonacci(value); 
 console.log({ value, result });`;
 
@@ -53,6 +53,27 @@ export default function CodeEditor() {
         'editor.lineHighlightBackground': '#111A2D',
       },
     });
+
+      // Light theme
+    monaco.editor.defineTheme('void-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: '', foreground: '1E2A3A' },
+        { token: 'keyword', foreground: '2255CC' },
+        { token: 'number', foreground: 'B5520A' },
+        { token: 'string', foreground: '1A7A3A' },
+        { token: 'comment', foreground: '6A7D9B' },
+      ],
+      colors: {
+        'editor.background': '#F0F4FF',
+        'editorLineNumber.foreground': '#8899BB',
+        'editorLineNumber.activeForeground': '#2255CC',
+        'editorCursor.foreground': '#2255CC',
+        'editor.selectionBackground': '#BDD4FF99',
+        'editor.lineHighlightBackground': '#E4ECFF',
+      },
+    }); 
   };
 
   const handleEditorMount: OnMount = (editor) => {
