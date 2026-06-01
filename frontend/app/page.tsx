@@ -1,4 +1,6 @@
+
 import CodeEditor from '@/components/CodeEditor';
+import ThemeToggle from '@/components/ThemeToggle'; 
 
 export default function HomePage() {
   return (
@@ -8,7 +10,10 @@ export default function HomePage() {
           <p className="eyebrow">CodeFlowViz 2.0</p>
           <h1>Execution Cockpit</h1>
         </div>
-        <div className="status">Void Theme · Sandbox Ready</div>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+  <ThemeToggle />
+  <span style={{ fontSize: "0.9rem", color: "#98b6ef" }}>Sandbox Ready</span>
+</div>
       </header>
 
       <section className="workspace">

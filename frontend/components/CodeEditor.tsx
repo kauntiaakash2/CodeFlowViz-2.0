@@ -1,7 +1,7 @@
 'use client';
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
-import { type ChangeEvent, useMemo, useRef, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
 
@@ -15,23 +15,9 @@ const result = fibonacci(value);
 console.log({ value, result });
 result;`;
 
-type ExecutionLog = {
-  level: string;
-  message: string;
-};
-
-type SerializedValue = {
-  type: string;
-  value: string;
-};
-
-type TimelineEvent = {
-  step: number;
-  line: number;
-  event: string;
-  variables: Record<string, SerializedValue>;
-};
-
+type ExecutionLog = { level: string; message: string };
+type SerializedValue = { type: string; value: string };
+type TimelineEvent = { step: number; line: number; event: string; variables: Record<string, SerializedValue> };
 type ExecutionResponse = {
   ok: boolean;
   result?: SerializedValue;
@@ -48,32 +34,44 @@ export default function CodeEditor() {
   const [output, setOutput] = useState<ExecutionResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState<number | null>(null);
+  const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>('void');
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationsRef = useRef<string[]>([]);
+
+  // 👇 Only this useEffect is new — watches for theme toggle
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const theme = document.documentElement.getAttribute('data-theme');
+      setEditorTheme(theme === 'light' ? 'ice' : 'void');
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   const snapshots = output?.timeline ?? [];
   const selectedSnapshot = selectedSnapshotIndex === null ? null : snapshots[selectedSnapshotIndex] ?? null;
   const selectedVariables = selectedSnapshot ? Object.entries(selectedSnapshot.variables) : [];
 
-  const options = useMemo(
-    () => ({
-      automaticLayout: true,
-      fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 14,
-      lineHeight: 22,
-      minimap: { enabled: false },
-      glyphMargin: true,
-      lineNumbers: 'on' as const,
-      smoothScrolling: true,
-      scrollBeyondLastLine: false,
-      tabSize: 2,
-      padding: { top: 16, bottom: 16 },
-    }),
-    []
-  );
+  const options = useMemo(() => ({
+    automaticLayout: true,
+    fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace',
+    fontSize: 14,
+    lineHeight: 22,
+    minimap: { enabled: false },
+    glyphMargin: true,
+    lineNumbers: 'on' as const,
+    smoothScrolling: true,
+    scrollBeyondLastLine: false,
+    tabSize: 2,
+    padding: { top: 16, bottom: 16 },
+  }), []);
 
   const handleEditorWillMount = (monaco: Monaco) => {
+    // ✅ Original void theme — completely unchanged
     monaco.editor.defineTheme('void', {
       base: 'vs-dark',
       inherit: true,
@@ -93,6 +91,27 @@ export default function CodeEditor() {
         'editor.lineHighlightBackground': '#111A2D',
       },
     });
+
+    // 👇 Only new addition — ice light theme
+    monaco.editor.defineTheme('ice', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: '', foreground: '1e1b4b' },
+        { token: 'keyword', foreground: '4f46e5' },
+        { token: 'number', foreground: '0891b2' },
+        { token: 'string', foreground: '059669' },
+        { token: 'comment', foreground: '94a3b8' },
+      ],
+      colors: {
+        'editor.background': '#ffffff',
+        'editorLineNumber.foreground': '#94a3b8',
+        'editorLineNumber.activeForeground': '#4f46e5',
+        'editorCursor.foreground': '#4f46e5',
+        'editor.selectionBackground': '#c7d2fe99',
+        'editor.lineHighlightBackground': '#dbeafe',
+      },
+    });
   };
 
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -104,7 +123,6 @@ export default function CodeEditor() {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco) return;
-
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
       {
         range: new monaco.Range(line, 1, line, 1),
@@ -121,7 +139,6 @@ export default function CodeEditor() {
   const selectSnapshot = (index: number) => {
     const snapshot = snapshots[index];
     if (!snapshot) return;
-
     setSelectedSnapshotIndex(index);
     highlightLine(snapshot.line);
   };
@@ -134,11 +151,9 @@ export default function CodeEditor() {
     setIsRunning(true);
     setOutput(null);
     setSelectedSnapshotIndex(null);
-
     if (editorRef.current) {
       decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
     }
-
     try {
       const response = await fetch(executionApiUrl, {
         method: 'POST',
@@ -182,7 +197,7 @@ export default function CodeEditor() {
           onChange={(value) => setCode(value ?? '')}
           beforeMount={handleEditorWillMount}
           onMount={handleEditorMount}
-          theme="void"
+          theme={editorTheme}
           options={options}
         />
       </div>
@@ -191,9 +206,7 @@ export default function CodeEditor() {
         <div className="outputHeader">
           <span>Playback Engine</span>
           {output ? (
-            <span>
-              {snapshots.length} snapshots · {output.instrumentation?.hookCount ?? 0} hooks · {output.durationMs}ms
-            </span>
+            <span>{snapshots.length} snapshots · {output.instrumentation?.hookCount ?? 0} hooks · {output.durationMs}ms</span>
           ) : (
             <span>Idle</span>
           )}
@@ -210,9 +223,7 @@ export default function CodeEditor() {
                       Snapshot {selectedSnapshotIndex === null ? 0 : selectedSnapshotIndex + 1} of {snapshots.length}
                     </strong>
                     {selectedSnapshot ? (
-                      <span>
-                        step #{selectedSnapshot.step} · line {selectedSnapshot.line} · {selectedSnapshot.event}
-                      </span>
+                      <span>step #{selectedSnapshot.step} · line {selectedSnapshot.line} · {selectedSnapshot.event}</span>
                     ) : null}
                   </div>
                   <input
@@ -251,9 +262,7 @@ export default function CodeEditor() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={3} className="emptyInspector">
-                            No variables changed in this snapshot.
-                          </td>
+                          <td colSpan={3} className="emptyInspector">No variables changed in this snapshot.</td>
                         </tr>
                       )}
                     </tbody>
