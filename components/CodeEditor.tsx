@@ -1,19 +1,20 @@
 'use client';
 
-import Editor, { type Monaco } from '@monaco-editor/react';
-import { useMemo, useState } from 'react';
+import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
+import { useMemo, useRef, useState } from 'react';
 
 const starterCode = `function fibonacci(n: number): number {
   if (n <= 1) return n;
   return fibonacci(n - 1) + fibonacci(n - 2);
 }
 
-const value = 6;
-const result = fibonacci(value);
+const value = 6; 
+const result = fibonacci(value); 
 console.log({ value, result });`;
 
 export default function CodeEditor() {
   const [code, setCode] = useState(starterCode);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   const options = useMemo(
     () => ({
@@ -29,7 +30,7 @@ export default function CodeEditor() {
       tabSize: 2,
       padding: { top: 16, bottom: 16 },
     }),
-    []
+    [] 
   );
 
   const handleEditorWillMount = (monaco: Monaco) => {
@@ -52,7 +53,32 @@ export default function CodeEditor() {
         'editor.lineHighlightBackground': '#111A2D',
       },
     });
+
+      // Light theme
+    monaco.editor.defineTheme('void-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: '', foreground: '1E2A3A' },
+        { token: 'keyword', foreground: '2255CC' },
+        { token: 'number', foreground: 'B5520A' },
+        { token: 'string', foreground: '1A7A3A' },
+        { token: 'comment', foreground: '6A7D9B' },
+      ],
+      colors: {
+        'editor.background': '#F0F4FF',
+        'editorLineNumber.foreground': '#8899BB',
+        'editorLineNumber.activeForeground': '#2255CC',
+        'editorCursor.foreground': '#2255CC',
+        'editor.selectionBackground': '#BDD4FF99',
+        'editor.lineHighlightBackground': '#E4ECFF',
+      },
+    }); 
   };
+
+  const handleEditorMount: OnMount = (editor) => {
+  editorRef.current = editor; 
+}; 
 
   return (
     <Editor
@@ -61,8 +87,9 @@ export default function CodeEditor() {
       value={code}
       onChange={(value) => setCode(value ?? '')}
       beforeMount={handleEditorWillMount}
+      onMount={handleEditorMount} 
       theme="void"
       options={options}
     />
   );
-}
+} 
