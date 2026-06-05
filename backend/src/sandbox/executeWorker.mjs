@@ -1,8 +1,16 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
-import { inspect } from 'node:util';
+import { inspect, promisify } from 'node:util';
+import { exec } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import crypto from 'node:crypto';
+
 import { instrumentCode as instrumentJS } from '../tracing/instrument.mjs';
 import { instrumentCode as instrumentJava } from '../tracing/javaInstrumenter.mjs';
+
+const execAsync = promisify(exec);
 
 const MAX_LOGS = 50;
 const MAX_LOG_CHARS = 2_000;
@@ -35,12 +43,7 @@ function createTrace(timeline) {
       for (const [name, value] of Object.entries(variables)) {
         snapshot[name] = serialize(value);
       }
-      timeline.push({
-        step: timeline.length + 1,
-        line,
-        event,
-        variables: snapshot,
-      });
+      timeline.push({ step: timeline.length + 1, line, event, variables: snapshot });
     },
   });
 }
@@ -48,12 +51,8 @@ function createTrace(timeline) {
 function createConsole(logs) {
   const record = (level, args) => {
     if (logs.length >= MAX_LOGS) return;
-    logs.push({
-      level,
-      message: clip(args.map((arg) => serialize(arg).value).join(' ')),
-    });
+    logs.push({ level, message: clip(args.map((arg) => serialize(arg).value).join(' ')) });
   };
-
   return Object.freeze({
     log: (...args) => record('log', args),
     info: (...args) => record('info', args),
@@ -74,58 +73,92 @@ function runJavaScript(code, timeoutMs) {
     globalThis: { value: sandbox, enumerable: false },
   });
 
-  const context = vm.createContext(sandbox, {
-    name: 'codeflowviz-sandbox',
-    codeGeneration: { strings: false, wasm: false },
-  });
-
-  const script = new vm.Script(`'use strict';\n${instrumentedCode}`, {
-    filename: 'user-code.js',
-    displayErrors: true,
-  });
-
-  const result = script.runInContext(context, {
-    timeout: timeoutMs,
-    displayErrors: true,
-    breakOnSigint: false,
-  });
-
+  const context = vm.createContext(sandbox, { name: 'codeflowviz-sandbox' });
+  const script = new vm.Script(`'use strict';\n${instrumentedCode}`, { filename: 'user-code.js' });
+  
+  const result = script.runInContext(context, { timeout: timeoutMs, breakOnSigint: false });
   return { ok: true, result: serialize(result), logs, timeline, instrumentation: { hookCount } };
 }
 
-function runJava(code, timeoutMs) {
+async function runJava(code, timeoutMs) {
   const logs = [];
   const timeline = [];
-  
-  // run the tree-sitter mapper to get the trace hooks in place. We won't actually execute the Java code until we set up a proper compilation and sandboxing environment, but this will allow us to at least get the AST mapping and trace hook counts for now.
   const { code: instrumentedCode, hookCount } = instrumentJava(code);
 
-  // returning a stub for now. TODO: wire up child_process to actually compile and run with javac
-  return { 
-      ok: true, 
-      result: { type: 'string', value: 'Java AST mapped. Compilation sandbox pending.' }, 
-      logs, 
-      timeline, 
-      instrumentation: { hookCount } 
-  };
+  const runId = crypto.randomUUID();
+  const tempDir = path.join(os.tmpdir(), `codeflowviz-${runId}`);
+  
+  try {
+    await fs.mkdir(tempDir, { recursive: true });
+
+    // bridge class to catch our injected trace hooks
+    const traceClassPath = path.join(tempDir, '_Trace.java');
+    const traceClassCode = `
+      public class _Trace {
+        public static void capture(int line, String event) {
+          System.out.println("___CFV_TRACE___:{\\"line\\":" + line + ",\\"event\\":\\"" + event + "\\"}");
+        }
+      }
+    `;
+    await fs.writeFile(traceClassPath, traceClassCode);
+
+    // dump user code (assuming public class Main for now)
+    const mainClassPath = path.join(tempDir, 'Main.java');
+    await fs.writeFile(mainClassPath, instrumentedCode);
+
+    await execAsync('javac Main.java _Trace.java', { cwd: tempDir, timeout: 5000 });
+    const { stdout, stderr } = await execAsync('java Main', { cwd: tempDir, timeout: timeoutMs });
+
+    const outputLines = stdout.split('\n');
+    let stepCount = 1;
+
+    for (const line of outputLines) {
+      if (!line.trim()) continue;
+      
+      // filter trace json from standard sysout
+      if (line.includes('___CFV_TRACE___:')) {
+        if (timeline.length >= MAX_TRACE_EVENTS) continue;
+        try {
+          const jsonStr = line.split('___CFV_TRACE___:')[1];
+          const parsed = JSON.parse(jsonStr);
+          timeline.push({ step: stepCount++, line: parsed.line, event: parsed.event, variables: {} });
+        } catch (e) {
+          // swallow bad json
+        }
+      } else {
+        if (logs.length < MAX_LOGS) {
+          logs.push({ level: 'log', message: clip(line) });
+        }
+      }
+    }
+
+    if (stderr && logs.length < MAX_LOGS) {
+       logs.push({ level: 'error', message: clip(stderr) });
+    }
+
+    return { ok: true, result: serialize("Execution completed"), logs, timeline, instrumentation: { hookCount } };
+
+  } catch (error) {
+    return { ok: false, error: error.message || 'Java execution failed', logs, timeline, instrumentation: { hookCount } };
+  } finally {
+    // cleanup temp dir so we don't nuke the server disk
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
-function run() {
+async function run() {
   const { code, timeoutMs, language } = workerData;
-  
   if (language === 'java') {
-      return runJava(code, timeoutMs);
+      return await runJava(code, timeoutMs);
   }
   return runJavaScript(code, timeoutMs);
 }
 
-try {
-  parentPort.postMessage(run());
-} catch (error) {
-  parentPort.postMessage({
+run()
+  .then(res => parentPort.postMessage(res))
+  .catch(err => parentPort.postMessage({
     ok: false,
-    error: error instanceof Error ? error.message : 'Unknown sandbox error',
+    error: err instanceof Error ? err.message : 'Unknown sandbox error',
     logs: [],
     timeline: [],
-  });
-}
+  }));
