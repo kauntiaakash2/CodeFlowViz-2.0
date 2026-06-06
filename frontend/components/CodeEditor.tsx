@@ -39,6 +39,8 @@ export default function CodeEditor() {
   
   // Set a balanced default height for the bottom panel
   const [bottomHeight, setBottomHeight] = useState(200);
+  const [isMaximized, setIsMaximized] = useState(false)
+const [isCollapsed, setIsCollapsed] = useState(false)
   const [isSashDragging, setIsSashDragging] = useState(false);
   
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
@@ -225,6 +227,29 @@ export default function CodeEditor() {
     }
   };
 
+const maximizePanel = () => {
+    if (containerRef.current) {
+      // Snaps the height to the exact full boundary of the container
+      const totalHeight = containerRef.current.getBoundingClientRect().height;
+      setBottomHeight(totalHeight);
+    } else {
+      setBottomHeight(window.innerHeight - 120);
+    }
+    setIsMaximized(true);
+    setIsCollapsed(false);
+  };
+
+  const collapsePanel = () => {
+    setBottomHeight(38); // Down to a thin header bar line
+    setIsCollapsed(true);
+    setIsMaximized(false);
+  };
+
+  const resetPanel = () => {
+    setBottomHeight(200); // Reverts cleanly to standard split view
+    setIsMaximized(false);
+    setIsCollapsed(false);
+  };
   return (
     <div
       ref={containerRef}
@@ -277,12 +302,13 @@ export default function CodeEditor() {
       </div>
 
       {/* Draggable Sash Line element */}
+      {/* Draggable Sash Line element */}
       <div
         className={`sash ${isSashDragging ? 'dragging' : ''}`}
-        onMouseDown={onSashMouseDown}
+        onMouseDown={isMaximized || isCollapsed ? undefined : onSashMouseDown}
         style={{
           height: '6px',
-          cursor: 'ns-resize',
+          cursor: isMaximized || isCollapsed ? 'not-allowed' : 'ns-resize',
           background: isSashDragging ? 'var(--accent-blue, #7c3aed)' : '#1e1e35',
           zIndex: 1000,
           position: 'relative',
@@ -294,74 +320,118 @@ export default function CodeEditor() {
         className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
         style={{ minHeight: 0, overflow: 'auto', height: `${bottomHeight}px` }}
       >
-        <div className="outputHeader">
-          <span>Playback Engine</span>
-          {output ? (
-            <span>{snapshots.length} snapshots · {output.instrumentation?.hookCount ?? 0} hooks · {output.durationMs}ms</span>
-          ) : (
-            <span>Idle</span>
-          )}
-        </div>
-        {output ? (
-          <div className="outputBody">
-            {output.error ? <pre className="errorText">{output.error}</pre> : null}
-            {output.result ? <pre>Result ({output.result.type}): {output.result.value}</pre> : null}
-            {snapshots.length ? (
-              <>
-                <section className="scrubberPanel" aria-label="Execution playback scrubber">
-                  <div className="scrubberMeta">
-                    <strong>
-                      Snapshot {selectedSnapshotIndex === null ? 0 : selectedSnapshotIndex + 1} of {snapshots.length}
-                    </strong>
-                    {selectedSnapshot ? (
-                      <span>step #{selectedSnapshot.step} · line {selectedSnapshot.line} · {selectedSnapshot.event}</span>
-                    ) : null}
-                  </div>
-                  <input
-                    aria-label="Scrub execution snapshots"
-                    className="snapshotScrubber"
-                    type="range"
-                    min="0"
-                    max={snapshots.length - 1}
-                    step="1"
-                    value={selectedSnapshotIndex ?? 0}
-                    onChange={scrubToSnapshot}
-                  />
-                </section>
-
-                <section className="inspectorPanel" aria-label="Variable Inspector">
-                  <div className="inspectorHeader">
-                    <h3>Variable Inspector</h3>
-                    {selectedSnapshot ? <span>Active line {selectedSnapshot.line}</span> : null}
-                  </div>
-                  <JsonTreeView data={selectedSnapshot.variables} />
-                </section>
-
-                <ol className="timelineList" aria-label="Execution trace snapshots">
-                  {snapshots.map((snapshot, index) => (
-                    <li key={snapshot.step}>
-                      <button
-                        className={selectedSnapshotIndex === index ? 'timelineStep active' : 'timelineStep'}
-                        type="button"
-                        onClick={() => selectSnapshot(index)}
-                      >
-                        <span className="stepMeta">#{snapshot.step} · line {snapshot.line} · {snapshot.event}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            ) : null}
-            {output.logs.length ? (
-              <div className="logList">
-                {output.logs.map((log, index) => (
-                  <pre key={`${log.level}-${index}`}>[{log.level}] {log.message}</pre>
-                ))}
-              </div>
-            ) : null}
+        <div className="outputHeader" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span>Playback Engine</span>
+            {output ? (
+              <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>
+                {snapshots.length} snapshots · {output.instrumentation?.hookCount ?? 0} hooks · {output.durationMs}ms
+              </span>
+            ) : (
+              <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>Idle</span>
+            )}
           </div>
-        ) : (
-          <p style={{ padding: '1rem', margin: 0 }}>Run code to see variable snapshots, loop checkpoints, console output, errors, and timeout status.</p>
+          
+          {/* Quick Actions Control Buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {isMaximized || isCollapsed ? (
+              <button 
+                type="button" 
+                onClick={resetPanel}
+                title="Restore Normal Layout"
+                style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              >
+                🗗
+              </button>
+            ) : null}
+            {!isCollapsed && (
+              <button 
+                type="button" 
+                onClick={collapsePanel}
+                title="Collapse Panel"
+                style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              >
+                ▼
+              </button>
+            )}
+            {!isMaximized && (
+              <button 
+                type="button" 
+                onClick={maximizePanel}
+                title="Maximize Panel"
+                style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              >
+                ▲
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Prevent content from overflowing when collapsed */}
+        {!isCollapsed && (
+          <div className="outputBody">
+            {output ? (
+              <>
+                {output.error ? <pre className="errorText">{output.error}</pre> : null}
+                {output.result ? <pre>Result ({output.result.type}): {output.result.value}</pre> : null}
+                {snapshots.length ? (
+                  <>
+                    <section className="scrubberPanel" aria-label="Execution playback scrubber">
+                      <div className="scrubberMeta">
+                        <strong>
+                          Snapshot {selectedSnapshotIndex === null ? 0 : selectedSnapshotIndex + 1} of {snapshots.length}
+                        </strong>
+                        {selectedSnapshot ? (
+                          <span>step #{selectedSnapshot.step} · line {selectedSnapshot.line} · {selectedSnapshot.event}</span>
+                        ) : null}
+                      </div>
+                      <input
+                        aria-label="Scrub execution snapshots"
+                        className="snapshotScrubber"
+                        type="range"
+                        min="0"
+                        max={snapshots.length - 1}
+                        step="1"
+                        value={selectedSnapshotIndex ?? 0}
+                        onChange={scrubToSnapshot}
+                      />
+                    </section>
+
+                    <section className="inspectorPanel" aria-label="Variable Inspector">
+                      <div className="inspectorHeader">
+                        <h3>Variable Inspector</h3>
+                        {selectedSnapshot ? <span>Active line {selectedSnapshot.line}</span> : null}
+                      </div>
+                      <JsonTreeView data={selectedSnapshot.variables} />
+                    </section>
+
+                    <ol className="timelineList" aria-label="Execution trace snapshots">
+                      {snapshots.map((snapshot, index) => (
+                        <li key={snapshot.step}>
+                          <button
+                            className={selectedSnapshotIndex === index ? 'timelineStep active' : 'timelineStep'}
+                            type="button"
+                            onClick={() => selectSnapshot(index)}
+                          >
+                            <span className="stepMeta">#{snapshot.step} · line {snapshot.line} · {snapshot.event}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                ) : null}
+                {output.logs.length ? (
+                  <div className="logList">
+                    {output.logs.map((log, index) => (
+                      <pre key={`${log.level}-${index}`}>[{log.level}] {log.message}</pre>
+                    ))}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p style={{ padding: '0.5rem', margin: 0 }}>Run code to see variable snapshots, loop checkpoints, console output, errors, and timeout status.</p>
+            )}
+          </div>
         )}
       </div>
     </div>
