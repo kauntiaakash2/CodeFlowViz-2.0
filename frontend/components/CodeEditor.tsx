@@ -402,7 +402,7 @@ const maximizePanel = () => {
                         <h3>Variable Inspector</h3>
                         {selectedSnapshot ? <span>Active line {selectedSnapshot.line}</span> : null}
                       </div>
-                      <JsonTreeView data={selectedSnapshot.variables} />
+                      <JsonTreeView data={selectedSnapshot?.variables ?? {}} />
                     </section>
 
                     <ol className="timelineList" aria-label="Execution trace snapshots">
