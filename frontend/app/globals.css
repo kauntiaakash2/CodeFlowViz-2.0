@@ -8,6 +8,11 @@
   --accent-blue: #7c3aed;
   --accent-cyan: #06b6d4;
   --line-highlight: #1a1a2e;
+  --syntax-default: #d7e4f8;
+  --syntax-keyword: #88b4ff;
+  --syntax-number: #f4ca64;
+  --syntax-string: #95d8a6;
+  --syntax-comment: #6a7d9b;
 }
 
 [data-theme="light"] {
@@ -20,6 +25,11 @@
   --accent-blue: #4f46e5;
   --accent-cyan: #0891b2;
   --line-highlight: #dbeafe;
+  --syntax-default: #1e1b4b;
+  --syntax-keyword: #4f46e5;
+  --syntax-number: #0891b2;
+  --syntax-string: #059669;
+  --syntax-comment: #94a3b8;
 }
 
 :root {

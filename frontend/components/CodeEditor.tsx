@@ -2,6 +2,7 @@
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { JsonTreeView } from './JsonTreeView';
 
 const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
 
@@ -64,7 +65,7 @@ const [isCollapsed, setIsCollapsed] = useState(false)
 
   const snapshots = output?.timeline ?? [];
   const selectedSnapshot = selectedSnapshotIndex === null ? null : snapshots[selectedSnapshotIndex] ?? null;
-  const selectedVariables = selectedSnapshot ? Object.entries(selectedSnapshot.variables) : [];
+
 
   const options = useMemo(() => ({
     automaticLayout: true,
@@ -401,30 +402,7 @@ const maximizePanel = () => {
                         <h3>Variable Inspector</h3>
                         {selectedSnapshot ? <span>Active line {selectedSnapshot.line}</span> : null}
                       </div>
-                      <table className="variableTable">
-                        <thead>
-                          <tr>
-                            <th scope="col">Name</th>
-                            <th scope="col">Type</th>
-                            <th scope="col">Value</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selectedVariables.length ? (
-                            selectedVariables.map(([name, value]) => (
-                              <tr key={`${selectedSnapshot?.step}-${name}`}>
-                                <th scope="row">{name}</th>
-                                <td>{value.type}</td>
-                                <td><code>{value.value}</code></td>
-                              </tr>
-                            ))
-                          ) : (
-                            <tr>
-                              <td colSpan={3} className="emptyInspector">No variables changed in this snapshot.</td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
+                      <JsonTreeView data={selectedSnapshot?.variables ?? {}} />
                     </section>
 
                     <ol className="timelineList" aria-label="Execution trace snapshots">

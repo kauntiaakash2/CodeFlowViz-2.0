@@ -26,6 +26,23 @@ function serialize(value) {
   if (typeof value === 'function') return { type: 'function', value: '[Function]' };
 
   try {
+    if (typeof value === 'object' && value !== null) {
+      const cache = new Set();
+      const jsonStr = JSON.stringify(value, (k, v) => {
+        if (typeof v === 'object' && v !== null) {
+          if (cache.has(v)) return '[Circular]';
+          cache.add(v);
+        }
+        if (typeof v === 'bigint') return `${v.toString()}n`;
+        if (typeof v === 'function') return '[Function]';
+        if (typeof v === 'undefined') return '[undefined]';
+        return v;
+      });
+      if (jsonStr.length <= MAX_LOG_CHARS) {
+        return { type: Array.isArray(value) ? 'array' : 'object', value: jsonStr };
+      }
+    }
+    
     return {
       type: Array.isArray(value) ? 'array' : typeof value,
       value: clip(inspect(value, { depth: 4, maxArrayLength: 50, breakLength: 100 })),
