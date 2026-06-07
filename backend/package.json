@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "acorn": "^8.16.0",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-java": "^0.23.5"
   }
 }

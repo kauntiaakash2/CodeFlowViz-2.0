@@ -43,7 +43,7 @@ function runInSandbox(code, timeoutMs) {
 
   return new Promise((resolve) => {
     const worker = new Worker(workerPath, {
-      workerData: { code, timeoutMs },
+      workerData: { code, timeoutMs, language},
       resourceLimits: {
         maxOldGenerationSizeMb: 32,
         maxYoungGenerationSizeMb: 8,
@@ -86,7 +86,7 @@ app.get('/api/health', (_request, response) => {
 });
 
 app.post('/api/execute', async (request, response) => {
-  const { code, timeoutMs } = request.body ?? {};
+  const { code, timeoutMs, language = 'javascript' } = request.body ?? {};
 
   if (typeof code !== 'string') {
     response.status(400).json({ ok: false, error: '`code` must be a string.' });
@@ -99,7 +99,7 @@ app.post('/api/execute', async (request, response) => {
   }
 
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
-  const result = await runInSandbox(code, normalizedTimeoutMs);
+  const result = await runInSandbox(code, normalizedTimeoutMs, language);
   response.status(result.ok ? 200 : 422).json(result);
 });
 
