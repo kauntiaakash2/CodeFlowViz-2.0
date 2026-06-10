@@ -40,8 +40,8 @@ body {
 
 [data-theme="light"] body,
 [data-theme="light"] .shell {
-  background: #f0f4ff;
-  color: #1e1b4b;
+  background: #f0f4ff !important;
+  color: #1e1b4b !important;
 }
 
 .shell {
@@ -93,6 +93,7 @@ h1 {
 [data-theme="light"] .status {
   color: var(--text-secondary);
 }
+
 .workspace {
   flex: 1;
   min-height: 0;
@@ -101,7 +102,6 @@ h1 {
   grid-template-columns: 230px minmax(0, 1fr) 280px;
   align-items: stretch;
 }
-
 
 .panel {
   border: 1px solid #1f2f50;
@@ -162,11 +162,12 @@ button {
   min-height: 0;
   height: 100%;
 }
+
 .codeRunner {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 1fr 5px 100px;
+  grid-template-rows: auto 1fr 6px 200px;
 }
 
 .runnerToolbar,
@@ -217,20 +218,21 @@ button {
 }
 
 .sash {
-  height: 5px;
+  height: 6px;
   cursor: ns-resize;
-  background: transparent;
+  background: #7c3aed66;
   transition: background 0.2s ease;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
   width: 100%;
+  border-top: 1px solid #7c3aed;
 }
 
 .sash:hover,
 .sash.dragging {
-  background: var(--accent-blue);
-  opacity: 0.8;
+  background: #7c3aed;
+  opacity: 1;
 }
 
 .outputPane {
@@ -516,7 +518,4 @@ button {
 
 [data-theme="light"] .emptyInspector {
   color: var(--text-secondary);
-}
-[data-theme="light"] .sash {
-  background: #dbeafe !important;
 }

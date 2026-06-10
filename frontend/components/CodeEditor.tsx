@@ -36,7 +36,13 @@ export default function CodeEditor() {
   const [output, setOutput] = useState<ExecutionResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState<number | null>(null);
-  const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>('void');
+  const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>(() => {
+    if (typeof window !== 'undefined') {
+      const theme = document.documentElement.getAttribute('data-theme');
+      return theme === 'light' ? 'ice' : 'void';
+    }
+    return 'void';
+  });
   const [bottomHeight, setBottomHeight] = useState(200);
   const [rightWidth, setRightWidth] = useState(380);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -158,7 +164,6 @@ export default function CodeEditor() {
     selectSnapshot(Number(event.target.value));
   };
 
-  // Vertical sash (bottom dock)
   const onSashMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -190,7 +195,6 @@ export default function CodeEditor() {
     window.addEventListener('mouseup', onMouseUp);
   }, [bottomHeight]);
 
-  // Horizontal sash (right dock)
   const onRightSashMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -291,7 +295,34 @@ export default function CodeEditor() {
     }
   };
 
-  // Output panel content (shared between bottom and right dock)
+  // ✅ Shared button style using CSS variables
+  const quickBtnStyle: React.CSSProperties = {
+    background: 'transparent',
+    border: '1px solid var(--border-color)',
+    color: 'var(--text-secondary)',
+    borderRadius: '4px',
+    padding: '2px 6px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    lineHeight: 1,
+    transition: 'all 0.2s ease',
+  };
+
+  // ✅ Constant purple sash — visible in both dark and light mode
+  const sashStyle = (isHorizontal: boolean): React.CSSProperties => ({
+    [isHorizontal ? 'width' : 'height']: '6px',
+    cursor: isMaximized || isCollapsed
+      ? 'not-allowed'
+      : isHorizontal ? 'ew-resize' : 'ns-resize',
+    background: isSashDragging ? '#7c3aed' : '#7c3aed66',
+    flexShrink: 0,
+    zIndex: 1000,
+    transition: 'background 0.15s ease',
+    borderTop: isHorizontal ? 'none' : '1px solid #7c3aed',
+    borderLeft: isHorizontal ? '1px solid #7c3aed' : 'none',
+  });
+
+  // Output panel content shared between both dock modes
   const outputPanelContent = (
     <>
       <div className="outputHeader" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -306,43 +337,48 @@ export default function CodeEditor() {
           )}
         </div>
 
-        {/* Quick Action Buttons */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          {/* Dock Toggle Button */}
+          {/* Dock Toggle */}
           <button
             type="button"
             onClick={toggleDock}
             title={dockPosition === 'bottom' ? 'Move to right side' : 'Move to bottom'}
-            style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '11px', lineHeight: 1 }}
+            style={{ ...quickBtnStyle, fontSize: '11px' }}
           >
             {dockPosition === 'bottom' ? '⇒' : '⇓'}
           </button>
+
+          {/* Restore */}
           {isMaximized || isCollapsed ? (
             <button
               type="button"
               onClick={resetPanel}
               title="Restore Normal Layout"
-              style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              style={quickBtnStyle}
             >
               🗗
             </button>
           ) : null}
+
+          {/* Collapse */}
           {!isCollapsed && (
             <button
               type="button"
               onClick={collapsePanel}
               title="Collapse Panel"
-              style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              style={quickBtnStyle}
             >
               {dockPosition === 'bottom' ? '▼' : '▶'}
             </button>
           )}
+
+          {/* Maximize */}
           {!isMaximized && (
             <button
               type="button"
               onClick={maximizePanel}
               title="Maximize Panel"
-              style={{ background: 'transparent', border: '1px solid #1f2f50', color: '#9fb8ea', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '12px', lineHeight: 1 }}
+              style={quickBtnStyle}
             >
               {dockPosition === 'bottom' ? '▲' : '◀'}
             </button>
@@ -443,7 +479,7 @@ export default function CodeEditor() {
     </>
   );
 
-  // ── BOTTOM DOCK LAYOUT ──
+  // ── BOTTOM DOCK ──
   if (dockPosition === 'bottom') {
     return (
       <div
@@ -487,13 +523,7 @@ export default function CodeEditor() {
         <div
           className={`sash ${isSashDragging ? 'dragging' : ''}`}
           onMouseDown={isMaximized || isCollapsed ? undefined : onSashMouseDown}
-          style={{
-            height: '6px',
-            cursor: isMaximized || isCollapsed ? 'not-allowed' : 'ns-resize',
-            background: isSashDragging ? 'var(--accent-blue, #7c3aed)' : '#1e1e35',
-            zIndex: 1000,
-            transition: 'background 0.15s ease',
-          }}
+          style={sashStyle(false)}
         />
 
         <div
@@ -506,7 +536,7 @@ export default function CodeEditor() {
     );
   }
 
-  // ── RIGHT DOCK LAYOUT ──
+  // ── RIGHT DOCK ──
   return (
     <div
       ref={containerRef}
@@ -524,7 +554,7 @@ export default function CodeEditor() {
         <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ew-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
       )}
 
-      {/* Left side — toolbar + editor */}
+      {/* Left — editor */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div className="runnerToolbar">
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
@@ -550,17 +580,10 @@ export default function CodeEditor() {
       {/* Horizontal Sash */}
       <div
         onMouseDown={isMaximized || isCollapsed ? undefined : onRightSashMouseDown}
-        style={{
-          width: '6px',
-          cursor: isMaximized || isCollapsed ? 'not-allowed' : 'ew-resize',
-          background: isSashDragging ? 'var(--accent-blue, #7c3aed)' : '#1e1e35',
-          flexShrink: 0,
-          zIndex: 1000,
-          transition: 'background 0.15s ease',
-        }}
+        style={sashStyle(true)}
       />
 
-      {/* Right side — output panel */}
+      {/* Right — output */}
       <div
         className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
         style={{
