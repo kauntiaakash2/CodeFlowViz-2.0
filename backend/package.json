@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "test": "node src/tracing/instrument.test.mjs"
   },
   "dependencies": {
     "acorn": "^8.16.0",

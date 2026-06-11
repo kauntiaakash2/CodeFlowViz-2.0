@@ -104,8 +104,8 @@ function visit(source, node, inserts) {
       instrumentLoop(source, node, inserts);
       break;
     case 'IfStatement':
-      visit(source, node.consequent, inserts);
-      if (node.alternate) visit(source, node.alternate, inserts);
+      instrumentBranch(source, node.consequent, inserts);
+      if (node.alternate) instrumentBranch(source, node.alternate, inserts);
       break;
     case 'LabeledStatement':
       visit(source, node.body, inserts);
@@ -144,6 +144,18 @@ function instrumentLoop(source, node, inserts) {
   insertAt(inserts, node.body.start, `{${loopTrace}\n`, 1);
   insertAt(inserts, node.body.end, '\n}', -1);
   visit(source, node.body, inserts);
+}
+
+function instrumentBranch(source, branch, inserts) {
+  if (!branch) return;
+  if (branch.type === 'BlockStatement') {
+    visit(source, branch, inserts);
+    return;
+  }
+
+  insertAt(inserts, branch.start, '{\n', 1);
+  insertAt(inserts, branch.end, '\n}', -1);
+  visit(source, branch, inserts);
 }
 
 export function instrumentCode(source) {
