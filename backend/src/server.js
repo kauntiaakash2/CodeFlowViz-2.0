@@ -38,12 +38,12 @@ function normalizeTimeout(timeoutMs) {
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)));
 }
 
-function runInSandbox(code, timeoutMs) {
+function runInSandbox(code, timeoutMs, language) {
   const startedAt = performance.now();
 
   return new Promise((resolve) => {
     const worker = new Worker(workerPath, {
-      workerData: { code, timeoutMs, language},
+      workerData: { code, timeoutMs, language },
       resourceLimits: {
         maxOldGenerationSizeMb: 32,
         maxYoungGenerationSizeMb: 8,
@@ -53,7 +53,7 @@ function runInSandbox(code, timeoutMs) {
 
     let settled = false;
     const killTimer = setTimeout(() => {
-      finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
+      finish({ ok: false, error: `Execution timed out: Infinite loop or intense resource usage detected after ${timeoutMs}ms.` }, true);
     }, timeoutMs + 100);
 
     function finish(response, timedOut = false) {
@@ -71,9 +71,10 @@ function runInSandbox(code, timeoutMs) {
     }
 
     worker.once('message', (message) => finish(message));
-    worker.once('error', (error) => finish({ ok: false, error: error.message }));
+    worker.once('error', (error) => finish({ ok: false, error: `Sandbox Exception: ${error.message}` }));
     worker.once('exit', (code) => {
-      if (code !== 0) finish({ ok: false, error: `Sandbox worker exited with code ${code}.` });
+      // Added !settled check to prevent overwriting the timeout error
+      if (code !== 0 && !settled) finish({ ok: false, error: `Sandbox worker exited with code ${code}.` });
     });
   });
 }
