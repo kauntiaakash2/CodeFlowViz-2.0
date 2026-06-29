@@ -17,6 +17,24 @@
 
 ---
 
+## Table of Contents
+
+- [Visual Preview](#visual-preview)
+- [Core Features](#core-features)
+- [Why CodeFlowViz?](#why-codeflowviz)
+- [The Deployment Story](#the-deployment-story)
+- [Architecture](#architecture)
+- [Technology Stack](#technology-stack)
+- [Installation & Setup](#installation--setup)
+- [Deployment](#deployment)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [Open Source Program Context](#open-source-program-context)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Visual Preview
 
 > **Execution Cockpit / Void design system preview**  
