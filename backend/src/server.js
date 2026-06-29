@@ -38,7 +38,7 @@ function normalizeTimeout(timeoutMs) {
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)));
 }
 
-function runInSandbox(code, timeoutMs) {
+function runInSandbox(code, timeoutMs, language) {
   const startedAt = performance.now();
 
   return new Promise((resolve) => {
