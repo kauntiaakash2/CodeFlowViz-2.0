@@ -1,4 +1,5 @@
 
+import Image from 'next/image';
 import CodeEditor from '@/components/CodeEditor';
 import ThemeToggle from '@/components/ThemeToggle'; 
 
@@ -6,9 +7,12 @@ export default function HomePage() {
   return (
     <main className="shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">CodeFlowViz 2.0</p>
-          <h1>Execution Cockpit</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <Image src="/logo.png" alt="CodeFlowViz Logo" width={48} height={48} style={{ borderRadius: '8px' }} />
+          <div>
+            <p className="eyebrow">CodeFlowViz 2.0</p>
+            <h1>Execution Cockpit</h1>
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
   <ThemeToggle />

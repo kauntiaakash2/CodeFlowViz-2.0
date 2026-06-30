@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'CodeFlowViz 2.0',
   description: 'Interactive cockpit for visual code execution flow.',
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({
