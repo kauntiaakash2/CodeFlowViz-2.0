@@ -8,6 +8,7 @@ const MAX_TIMEOUT_MS = 5_000;
 const MIN_TIMEOUT_MS = 100;
 const MAX_CODE_LENGTH = 20_000;
 const DEFAULT_PORT = 4000;
+const SUPPORTED_LANGUAGES = new Set(['javascript', 'java']);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,14 @@ function normalizeTimeout(timeoutMs) {
 
 function runInSandbox(code, timeoutMs, language = 'javascript') {
   const startedAt = performance.now();
+
+  if (!language) {
+    return Promise.resolve({ ok: false, error: '`language` is required.', logs: [], timeline: [], durationMs: 0, timedOut: false });
+  }
+
+  if (!SUPPORTED_LANGUAGES.has(language)) {
+    return Promise.resolve({ ok: false, error: `Unsupported language: "${language}". Supported: ${[...SUPPORTED_LANGUAGES].join(', ')}.`, logs: [], timeline: [], durationMs: 0, timedOut: false });
+  }
 
   return new Promise((resolve) => {
     const worker = new Worker(workerPath, {
