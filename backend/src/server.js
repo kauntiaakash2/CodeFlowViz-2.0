@@ -52,6 +52,7 @@ function runInSandbox(code, timeoutMs) {
     });
 
     let settled = false;
+    let messageReceived = false;
     const killTimer = setTimeout(() => {
       finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
     }, timeoutMs + 100);
@@ -60,6 +61,7 @@ function runInSandbox(code, timeoutMs) {
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
+      clearTimeout(graceTimer);
       worker.terminate().catch(() => undefined);
       resolve({
         ...response,
@@ -70,11 +72,22 @@ function runInSandbox(code, timeoutMs) {
       });
     }
 
-    worker.once('message', (message) => finish(message));
+    worker.once('message', (message) => {
+      messageReceived = true;
+      finish(message);
+    });
     worker.once('error', (error) => finish({ ok: false, error: error.message }));
     worker.once('exit', (code) => {
-      if (code !== 0) finish({ ok: false, error: `Sandbox worker exited with code ${code}.` });
+      if (!messageReceived) {
+        finish({ ok: false, error: code !== 0 ? `Sandbox worker exited with code ${code}.` : 'Worker exited without sending a result.' });
+      }
     });
+
+    const graceTimer = setTimeout(() => {
+      if (!messageReceived && !settled) {
+        finish({ ok: false, error: 'Worker did not respond within the grace period.' });
+      }
+    }, timeoutMs + 200);
   });
 }
 
