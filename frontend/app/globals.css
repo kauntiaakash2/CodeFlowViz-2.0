@@ -546,7 +546,7 @@ button {
   }
 
   .codeRunner {
-    grid-template-rows: auto 350px 6px 180px;
+    grid-template-rows: auto 350px 6px 180px !important;
   }
 
   .runnerToolbar {
