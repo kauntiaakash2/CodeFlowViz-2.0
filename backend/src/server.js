@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
+import rateLimit from 'express-rate-limit';
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
@@ -10,10 +11,46 @@ const MIN_TIMEOUT_MS = 100;
 const MAX_CODE_LENGTH = 20_000;
 const DEFAULT_PORT = 4000;
 const SUPPORTED_LANGUAGES = new Set(['javascript', 'java']);
+const MAX_CONCURRENT_WORKERS = 4;
+const MAX_QUEUE_SIZE = 20;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const workerPath = path.join(__dirname, 'sandbox/executeWorker.mjs');
+
+class RequestQueue {
+  #concurrency;
+  #active = 0;
+  #queue = [];
+
+  constructor(concurrency) {
+    this.#concurrency = concurrency;
+  }
+
+  acquire() {
+    if (this.#active < this.#concurrency) {
+      this.#active++;
+      return Promise.resolve();
+    }
+    if (this.#queue.length >= MAX_QUEUE_SIZE) {
+      return Promise.reject(new Error('Server is busy. Please try again later.'));
+    }
+    return new Promise((resolve, reject) => {
+      this.#queue.push({ resolve, reject });
+    });
+  }
+
+  release() {
+    const next = this.#queue.shift();
+    if (next) {
+      next.resolve();
+    } else {
+      this.#active--;
+    }
+  }
+}
+
+const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
@@ -35,6 +72,14 @@ app.use((request, response, next) => {
 
 app.use(express.json({ limit: '64kb' }));
 
+const executeLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Too many requests. Please slow down.' },
+});
+
 function normalizeTimeout(timeoutMs) {
   if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)));
@@ -51,15 +96,28 @@ function runInSandbox(code, timeoutMs, language = 'javascript') {
     return Promise.resolve({ ok: false, error: `Unsupported language: "${language}". Supported: ${[...SUPPORTED_LANGUAGES].join(', ')}.`, logs: [], timeline: [], durationMs: 0, timedOut: false });
   }
 
+  return workerQueue.acquire().then(() => {
+    return executeInWorker(code, timeoutMs, language, startedAt);
+  });
+}
+
+function executeInWorker(code, timeoutMs, language, startedAt) {
   return new Promise((resolve) => {
-    const worker = new Worker(workerPath, {
-      workerData: { code, timeoutMs, language },
-      resourceLimits: {
-        maxOldGenerationSizeMb: 32,
-        maxYoungGenerationSizeMb: 8,
-        stackSizeMb: 1,
-      },
-    });
+    let worker;
+    try {
+      worker = new Worker(workerPath, {
+        workerData: { code, timeoutMs, language },
+        resourceLimits: {
+          maxOldGenerationSizeMb: 32,
+          maxYoungGenerationSizeMb: 8,
+          stackSizeMb: 1,
+        },
+      });
+    } catch (err) {
+      workerQueue.release();
+      resolve({ ok: false, error: err.message, logs: [], timeline: [], durationMs: Math.round(performance.now() - startedAt), timedOut: false });
+      return;
+    }
 
     let settled = false;
     let messageReceived = false;
@@ -73,6 +131,7 @@ function runInSandbox(code, timeoutMs, language = 'javascript') {
       clearTimeout(killTimer);
       clearTimeout(graceTimer);
       worker.terminate().catch(() => undefined);
+      workerQueue.release();
       resolve({
         ...response,
         logs: response.logs ?? [],
@@ -112,7 +171,7 @@ function healthResponse(_request, response) {
 app.get('/health', healthResponse);
 app.get('/api/health', healthResponse);
 
-app.post('/api/execute', async (request, response) => {
+app.post('/api/execute', executeLimiter, async (request, response) => {
   const { code, timeoutMs, language = 'javascript' } = request.body ?? {};
 
   if (typeof code !== 'string') {
@@ -125,13 +184,17 @@ app.post('/api/execute', async (request, response) => {
     return;
   }
 
-  // 1. Generate the Big-O Estimate from the AST
   const complexityEstimate = estimateComplexity(code);
-
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
-  const result = await runInSandbox(code, normalizedTimeoutMs, language);
-  
-  // 2. Attach the complexity to the successful result
+
+  let result;
+  try {
+    result = await runInSandbox(code, normalizedTimeoutMs, language);
+  } catch (err) {
+    response.status(503).json({ ok: false, error: err.message, logs: [], timeline: [], durationMs: 0, timedOut: false });
+    return;
+  }
+
   if (result.ok) {
     result.complexity = complexityEstimate;
   }
