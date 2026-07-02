@@ -3,3 +3,5 @@ node_modules
 out
 npm-debug.log*
 .DS_Store
+backend/data/
+

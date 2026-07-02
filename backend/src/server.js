@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import rateLimit from 'express-rate-limit';
+import { SessionStore } from './services/sessionStore.js';
+import { createRateLimiter } from './middleware/rateLimiter.js';
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
@@ -170,6 +172,56 @@ app.post('/api/execute', executeLimiter, async (request, response) => {
 
   response.status(result.ok ? 200 : 422).json(result);
 });
+
+const sessionCreateLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  message: 'Too many sessions created from this IP. Please try again after a minute.',
+});
+
+const sessionGetLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  message: 'Too many requests. Please try again after a minute.',
+});
+
+app.post('/api/sessions', sessionCreateLimiter, async (request, response) => {
+  const { code, output, selectedSnapshotIndex } = request.body ?? {};
+
+  if (typeof code !== 'string') {
+    response.status(400).json({ ok: false, error: '`code` must be a string.' });
+    return;
+  }
+
+  try {
+    const session = await SessionStore.save({ code, output, selectedSnapshotIndex });
+    response.status(201).json({ ok: true, session });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: 'Failed to save session.' });
+  }
+});
+
+app.get('/api/sessions/:id', sessionGetLimiter, async (request, response) => {
+  const sessionId = request.params.id;
+
+  try {
+    const session = await SessionStore.get(sessionId);
+    if (!session) {
+      response.status(404).json({ ok: false, error: 'Session not found or expired.' });
+      return;
+    }
+    response.status(200).json({ ok: true, session });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: 'Failed to retrieve session.' });
+  }
+});
+
+// Initialize session store and periodic cleanup
+SessionStore.init().catch(console.error);
+setInterval(() => {
+  SessionStore.cleanup().catch(console.error);
+}, 60 * 60 * 1000);
+
 
 app.use((error, _request, response, _next) => {
   if (error instanceof SyntaxError && 'body' in error) {

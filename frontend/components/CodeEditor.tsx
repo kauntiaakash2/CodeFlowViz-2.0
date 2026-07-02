@@ -4,6 +4,8 @@ import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '@/context/PlaybackContext';
 
+const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
+
 type DockPosition = 'bottom' | 'right';
 
 export default function CodeEditor() {
@@ -21,6 +23,12 @@ export default function CodeEditor() {
     selectedSnapshotIndex,
     setSelectedSnapshotIndex,
   } = playback;
+
+  // Session sharing states
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
   const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>(() => {
     if (typeof window !== 'undefined') {
       const theme = document.documentElement.getAttribute('data-theme');
@@ -267,6 +275,123 @@ export default function CodeEditor() {
     resetPanel();
   };
 
+  const shareSession = async () => {
+    setIsSharing(true);
+    setShareError(null);
+    setShareUrl(null);
+    setIsCopied(false);
+
+    try {
+      const apiBaseUrl = executionApiUrl.replace(/\/api\/execute$/, '');
+      const sessionsApiUrl = `${apiBaseUrl}/api/sessions`;
+
+      const response = await fetch(sessionsApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, output, selectedSnapshotIndex }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to generate share link.');
+      }
+
+      const result = await response.json();
+      const sessionId = result.session.id;
+      const url = `${window.location.origin}/${sessionId}`;
+      setShareUrl(url);
+
+      try {
+        await navigator.clipboard.writeText(url);
+        setIsCopied(true);
+      } catch (err) {
+        console.warn('Could not auto-copy to clipboard:', err);
+      }
+    } catch (error) {
+      setShareError(error instanceof Error ? error.message : 'An unexpected error occurred.');
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  const renderShareModal = () => {
+    if (!isSharing && !shareUrl && !shareError) return null;
+    return (
+      <div className="modal-overlay" onClick={() => { if (!isSharing) { setShareUrl(null); setShareError(null); } }}>
+        <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2>Share Debugging Session</h2>
+            {!isSharing && (
+              <button
+                type="button"
+                className="modal-close-btn"
+                onClick={() => { setShareUrl(null); setShareError(null); }}
+                aria-label="Close dialog"
+              >
+                &times;
+              </button>
+            )}
+          </div>
+          
+          {isSharing && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1rem 0' }}>
+              <div style={{ border: '3px solid #1f2f50', borderTop: '3px solid #7c3aed', borderRadius: '50%', width: '32px', height: '32px', animation: 'spin 1s linear infinite' }} />
+              <p style={{ marginTop: '1rem', color: 'var(--text-secondary)' }}>Generating your shareable trace link...</p>
+            </div>
+          )}
+
+          {shareError && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ color: '#ff9aaa', margin: 0 }}>{shareError}</p>
+              <button
+                type="button"
+                className="primaryAction"
+                style={{ alignSelf: 'flex-end', width: 'auto', padding: '0.4rem 1rem' }}
+                onClick={shareSession}
+              >
+                Try Again
+              </button>
+            </div>
+          )}
+
+          {shareUrl && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                Anyone with this link can view your exact code, execution history, variable states, and selected scrubber step.
+              </p>
+              <div className="share-input-group">
+                <input
+                  type="text"
+                  readOnly
+                  className="share-url-input"
+                  value={shareUrl}
+                  onClick={(e) => (e.target as HTMLInputElement).select()}
+                />
+                <button
+                  type="button"
+                  className="share-copy-btn"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(shareUrl);
+                      setIsCopied(true);
+                    } catch (err) {
+                      console.error(err);
+                    }
+                  }}
+                >
+                  {isCopied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <div className="share-expiry-note">
+                <span>⏳</span>
+                <span>This link will expire in 24 hours.</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
   // ✅ Shared button style using CSS variables
   const quickBtnStyle: React.CSSProperties = {
     background: 'transparent',
@@ -454,121 +579,137 @@ export default function CodeEditor() {
   // ── BOTTOM DOCK ──
   if (dockPosition === 'bottom') {
     return (
-      <div
-        ref={containerRef}
-        className="codeRunner"
-        style={{
-          display: 'grid',
-          height: '100%',
-          maxHeight: 'calc(100vh - 120px)',
-          minHeight: 0,
-          gridTemplateRows: `auto 1fr 6px ${bottomHeight}px`,
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {isSashDragging && (
-          <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ns-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
-        )}
-
-        <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
-            {isRunning ? 'Tracing…' : 'Trace Execution'}
-          </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
-        </div>
-
-        <div className="monacoPane" style={{ minHeight: 0, overflow: 'hidden' }}>
-          <Editor
-            height="100%"
-            defaultLanguage="javascript"
-            value={code}
-            onChange={(value) => setCode(value ?? '')}
-            beforeMount={handleEditorWillMount}
-            onMount={handleEditorMount}
-            theme={editorTheme}
-            options={options}
-          />
-        </div>
-
-        {/* Vertical Sash */}
+      <>
         <div
-          className={`sash ${isSashDragging ? 'dragging' : ''}`}
-          onMouseDown={isMaximized || isCollapsed ? undefined : onSashMouseDown}
-          style={sashStyle(false)}
-        />
-
-        <div
-          className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
-          style={{ minHeight: 0, overflow: 'auto', height: `${bottomHeight}px` }}
+          ref={containerRef}
+          className="codeRunner"
+          style={{
+            display: 'grid',
+            height: '100%',
+            maxHeight: 'calc(100vh - 120px)',
+            minHeight: 0,
+            gridTemplateRows: `auto 1fr 6px ${bottomHeight}px`,
+            position: 'relative',
+            overflow: 'hidden',
+          }}
         >
-          {outputPanelContent}
+          {isSashDragging && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ns-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
+          )}
+
+          <div className="runnerToolbar">
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+                {isRunning ? 'Tracing…' : 'Trace Execution'}
+              </button>
+              <button className="shareAction" type="button" onClick={shareSession} disabled={isRunning || isSharing}>
+                {isSharing ? 'Sharing…' : 'Share Trace'}
+              </button>
+            </div>
+            <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
+          </div>
+
+          <div className="monacoPane" style={{ minHeight: 0, overflow: 'hidden' }}>
+            <Editor
+              height="100%"
+              defaultLanguage="javascript"
+              value={code}
+              onChange={(value) => setCode(value ?? '')}
+              beforeMount={handleEditorWillMount}
+              onMount={handleEditorMount}
+              theme={editorTheme}
+              options={options}
+            />
+          </div>
+
+          {/* Vertical Sash */}
+          <div
+            className={`sash ${isSashDragging ? 'dragging' : ''}`}
+            onMouseDown={isMaximized || isCollapsed ? undefined : onSashMouseDown}
+            style={sashStyle(false)}
+          />
+
+          <div
+            className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
+            style={{ minHeight: 0, overflow: 'auto', height: `${bottomHeight}px` }}
+          >
+            {outputPanelContent}
+          </div>
         </div>
-      </div>
+        {renderShareModal()}
+      </>
     );
   }
 
   // ── RIGHT DOCK ──
   return (
-    <div
-      ref={containerRef}
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        height: '100%',
-        maxHeight: 'calc(100vh - 120px)',
-        minHeight: 0,
-        position: 'relative',
-        overflow: 'hidden',
-      }}
-    >
-      {isSashDragging && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ew-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
-      )}
-
-      {/* Left — editor */}
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
-        <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
-            {isRunning ? 'Tracing…' : 'Trace Execution'}
-          </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
-        </div>
-
-        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <Editor
-            height="100%"
-            defaultLanguage="javascript"
-            value={code}
-            onChange={(value) => setCode(value ?? '')}
-            beforeMount={handleEditorWillMount}
-            onMount={handleEditorMount}
-            theme={editorTheme}
-            options={options}
-          />
-        </div>
-      </div>
-
-      {/* Horizontal Sash */}
+    <>
       <div
-        onMouseDown={isMaximized || isCollapsed ? undefined : onRightSashMouseDown}
-        style={sashStyle(true)}
-      />
-
-      {/* Right — output */}
-      <div
-        className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
+        ref={containerRef}
         style={{
-          width: `${rightWidth}px`,
-          minWidth: 0,
-          overflow: 'auto',
-          flexShrink: 0,
           display: 'flex',
-          flexDirection: 'column',
+          flexDirection: 'row',
+          height: '100%',
+          maxHeight: 'calc(100vh - 120px)',
+          minHeight: 0,
+          position: 'relative',
+          overflow: 'hidden',
         }}
       >
-        {outputPanelContent}
+        {isSashDragging && (
+          <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ew-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
+        )}
+
+        {/* Left — editor */}
+        <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+          <div className="runnerToolbar">
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+                {isRunning ? 'Tracing…' : 'Trace Execution'}
+              </button>
+              <button className="shareAction" type="button" onClick={shareSession} disabled={isRunning || isSharing}>
+                {isSharing ? 'Sharing…' : 'Share Trace'}
+              </button>
+            </div>
+            <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
+          </div>
+
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <Editor
+              height="100%"
+              defaultLanguage="javascript"
+              value={code}
+              onChange={(value) => setCode(value ?? '')}
+              beforeMount={handleEditorWillMount}
+              onMount={handleEditorMount}
+              theme={editorTheme}
+              options={options}
+            />
+          </div>
+        </div>
+
+        {/* Horizontal Sash */}
+        <div
+          onMouseDown={isMaximized || isCollapsed ? undefined : onRightSashMouseDown}
+          style={sashStyle(true)}
+        />
+
+        {/* Right — output */}
+        <div
+          className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
+          style={{
+            width: `${rightWidth}px`,
+            minWidth: 0,
+            overflow: 'auto',
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {outputPanelContent}
+        </div>
       </div>
-    </div>
+      {renderShareModal()}
+    </>
   );
 }
