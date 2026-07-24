@@ -1,3 +1,4 @@
+import { estimateComplexity } from './tracing/complexityAnalyzer.mjs';
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -117,8 +118,17 @@ app.post('/api/execute', async (request, response) => {
     return;
   }
 
+  // 1. Generate the Big-O Estimate from the AST
+  const complexityEstimate = estimateComplexity(code);
+
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
   const result = await runInSandbox(code, normalizedTimeoutMs, language);
+  
+  // 2. Attach the complexity to the successful result
+  if (result.ok) {
+    result.complexity = complexityEstimate;
+  }
+
   response.status(result.ok ? 200 : 422).json(result);
 });
 
