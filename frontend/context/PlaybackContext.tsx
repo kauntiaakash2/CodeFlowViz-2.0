@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { usePlaybackScrubber, type TimelineEvent } from '@/hooks/usePlaybackScrubber';
 
 export interface ExecutionResponse {
@@ -51,6 +51,7 @@ export function PlaybackProvider({
   const [code, setCode] = useState(initialSession?.code ?? starterCode);
   const [output, setOutput] = useState<ExecutionResponse | null>(initialSession?.output ?? null);
   const [isRunning, setIsRunning] = useState(false);
+  const isRequestPendingRef = useRef(false);
 
   const snapshots = useMemo(
   () => output?.timeline ?? [],
@@ -63,6 +64,9 @@ export function PlaybackProvider({
   });
 
   const runCode = useCallback(async () => {
+    if (isRequestPendingRef.current) return;
+    isRequestPendingRef.current = true;
+
     setIsRunning(true);
     setOutput(null);
     playback.setSelectedSnapshotIndex(null);
@@ -97,6 +101,7 @@ export function PlaybackProvider({
         error: error instanceof Error ? error.message : 'Unable to reach the execution sandbox.',
       });
     } finally {
+      isRequestPendingRef.current = false;
       setIsRunning(false);
     }
   }, [code, playback.setSelectedSnapshotIndex]);
