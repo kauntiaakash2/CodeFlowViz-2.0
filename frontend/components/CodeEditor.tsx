@@ -34,6 +34,7 @@ export default function CodeEditor() {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isSashDragging, setIsSashDragging] = useState(false);
   const [dockPosition, setDockPosition] = useState<DockPosition>('bottom');
+  const [isEditorReady, setIsEditorReady] = useState(false);
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
@@ -117,14 +118,7 @@ export default function CodeEditor() {
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-
-    // Apply initial decorations on mount if a snapshot is already selected
-    if (selectedSnapshotIndex !== null) {
-      const snapshot = snapshots[selectedSnapshotIndex];
-      if (snapshot) {
-        setTimeout(() => highlightLine(snapshot.line), 150);
-      }
-    }
+    setIsEditorReady(true);
   };
 
   const highlightLine = useCallback((line: number | null) => {
@@ -152,6 +146,8 @@ export default function CodeEditor() {
 
   // Synchronize Monaco highlighting with context-driven selection changes
   useEffect(() => {
+    if (!isEditorReady) return;
+
     if (selectedSnapshotIndex === null) {
       highlightLine(null);
     } else {
@@ -160,7 +156,7 @@ export default function CodeEditor() {
         highlightLine(snapshot.line);
       }
     }
-  }, [selectedSnapshotIndex, snapshots, highlightLine]);
+  }, [selectedSnapshotIndex, snapshots, highlightLine, isEditorReady]);
 
   const selectSnapshot = (index: number) => {
     const snapshot = snapshots[index];
