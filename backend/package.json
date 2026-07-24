@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "benchmark": "node src/tracing/benchmark.mjs",
     "test": "node src/tracing/instrument.test.mjs"
   },
   "dependencies": {
