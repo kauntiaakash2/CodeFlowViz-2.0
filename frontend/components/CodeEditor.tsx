@@ -288,6 +288,9 @@ export default function CodeEditor() {
       const response = await fetch(sessionsApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Include the full output object — output.timeline carries the complete
+        // AST execution trace (snapshots, variables, loop checkpoints) needed
+        // to fully restore the debugging session on the shared page.
         body: JSON.stringify({ code, output, selectedSnapshotIndex }),
       });
 

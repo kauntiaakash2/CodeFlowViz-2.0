@@ -12,6 +12,7 @@ const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
 const MIN_TIMEOUT_MS = 100;
 const MAX_CODE_LENGTH = 20_000;
+const MAX_OUTPUT_BYTES = 500_000; // 500 KB serialized output cap
 const DEFAULT_PORT = 4000;
 const SUPPORTED_LANGUAGES = new Set(['javascript', 'java']);
 const MAX_CONCURRENT_WORKERS = 4;
@@ -193,8 +194,25 @@ app.post('/api/sessions', sessionCreateLimiter, async (request, response) => {
     return;
   }
 
+  // Bound output payload size before hitting the filesystem.
+  if (output !== undefined && output !== null) {
+    const serializedOutput = JSON.stringify(output);
+    if (serializedOutput.length > MAX_OUTPUT_BYTES) {
+      response.status(413).json({ ok: false, error: `Output payload exceeds the ${MAX_OUTPUT_BYTES} byte limit.` });
+      return;
+    }
+  }
+
+  // Ensure selectedSnapshotIndex is a safe finite integer or null.
+  const safeIndex =
+    typeof selectedSnapshotIndex === 'number' &&
+    Number.isFinite(selectedSnapshotIndex) &&
+    Number.isSafeInteger(selectedSnapshotIndex)
+      ? selectedSnapshotIndex
+      : null;
+
   try {
-    const session = await SessionStore.save({ code, output, selectedSnapshotIndex });
+    const session = await SessionStore.save({ code, output, selectedSnapshotIndex: safeIndex });
     response.status(201).json({ ok: true, session });
   } catch (error) {
     response.status(500).json({ ok: false, error: 'Failed to save session.' });

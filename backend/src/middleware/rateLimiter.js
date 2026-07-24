@@ -1,9 +1,15 @@
-const ipRequests = new Map(); // ip -> { count, resetTime }
-
 export function createRateLimiter({ windowMs, maxRequests, message }) {
+  // Each limiter gets its own Map — prevents cross-limiter count bleed.
+  const ipRequests = new Map(); // ip -> { count, resetTime }
+
   return (req, res, next) => {
     const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress;
     const now = Date.now();
+
+    // Evict all expired entries to prevent unbounded memory growth.
+    for (const [key, data] of ipRequests) {
+      if (now > data.resetTime) ipRequests.delete(key);
+    }
 
     let rateData = ipRequests.get(ip);
     if (!rateData || now > rateData.resetTime) {
