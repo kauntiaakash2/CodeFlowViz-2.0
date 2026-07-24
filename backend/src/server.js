@@ -101,12 +101,16 @@ function runInSandbox(code, timeoutMs, language = 'javascript') {
   });
 }
 
-app.get('/api/health', (_request, response) => {
+function healthResponse(_request, response) {
   response.status(200).json({
     status: 'ok',
+    service: 'codeflowviz-backend',
     timestamp: new Date().toISOString(),
   });
-});
+}
+
+app.get('/health', healthResponse);
+app.get('/api/health', healthResponse);
 
 app.post('/api/execute', async (request, response) => {
   const { code, timeoutMs, language = 'javascript' } = request.body ?? {};
