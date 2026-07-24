@@ -2,40 +2,25 @@
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-
-const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
-
-const starterCode = `function fibonacci(n) {
-  if (n <= 1) return n;
-  return fibonacci(n - 1) + fibonacci(n - 2);
-}
-
-const value = 6;
-const result = fibonacci(value);
-console.log({ value, result });
-result;`;
-
-type ExecutionLog = { level: string; message: string };
-type SerializedValue = { type: string; value: string };
-type TimelineEvent = { step: number; line: number; event: string; variables: Record<string, SerializedValue> };
-type ExecutionResponse = {
-  ok: boolean;
-  result?: SerializedValue;
-  logs: ExecutionLog[];
-  timeline: TimelineEvent[];
-  instrumentation?: { hookCount: number };
-  error?: string;
-  durationMs: number;
-  timedOut: boolean;
-};
+import { usePlayback } from '@/context/PlaybackContext';
 
 type DockPosition = 'bottom' | 'right';
 
 export default function CodeEditor() {
-  const [code, setCode] = useState(starterCode);
-  const [output, setOutput] = useState<ExecutionResponse | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [selectedSnapshotIndex, setSelectedSnapshotIndex] = useState<number | null>(null);
+  const {
+    code,
+    setCode,
+    output,
+    isRunning,
+    runCode,
+    snapshots,
+    playback,
+  } = usePlayback();
+
+  const {
+    selectedSnapshotIndex,
+    setSelectedSnapshotIndex,
+  } = playback;
   const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>(() => {
     if (typeof window !== 'undefined') {
       const theme = document.documentElement.getAttribute('data-theme');
@@ -58,7 +43,6 @@ export default function CodeEditor() {
   const dragStartX = useRef(0);
   const dragStartHeight = useRef(0);
   const dragStartWidth = useRef(0);
-  const isRequestPendingRef = useRef(false);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -71,8 +55,6 @@ export default function CodeEditor() {
     });
     return () => observer.disconnect();
   }, []);
-
-  const snapshots = output?.timeline ?? [];
   const selectedSnapshot = selectedSnapshotIndex === null ? null : snapshots[selectedSnapshotIndex] ?? null;
   const selectedVariables = selectedSnapshot ? Object.entries(selectedSnapshot.variables) : [];
 
@@ -261,44 +243,6 @@ export default function CodeEditor() {
   const toggleDock = () => {
     setDockPosition(prev => prev === 'bottom' ? 'right' : 'bottom');
     resetPanel();
-  };
-
-  const runCode = async () => {
-    if (isRequestPendingRef.current) return;
-    isRequestPendingRef.current = true;
-
-    try {
-      setIsRunning(true);
-      setOutput(null);
-      setSelectedSnapshotIndex(null);
-      if (editorRef.current) {
-        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
-      }
-
-      const response = await fetch(executionApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, timeoutMs: 1000 }),
-      });
-      const result = (await response.json()) as ExecutionResponse;
-      setOutput(result);
-      if (result.timeline?.[0]) {
-        setSelectedSnapshotIndex(0);
-        highlightLine(result.timeline[0].line);
-      }
-    } catch (error) {
-      setOutput({
-        ok: false,
-        logs: [],
-        timeline: [],
-        durationMs: 0,
-        timedOut: false,
-        error: error instanceof Error ? error.message : 'Unable to reach the execution sandbox.',
-      });
-    } finally {
-      isRequestPendingRef.current = false;
-      setIsRunning(false);
-    }
   };
 
   // ✅ Shared button style using CSS variables
