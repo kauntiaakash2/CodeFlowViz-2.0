@@ -52,8 +52,75 @@ function getAssignedNames(node) {
     if (expression.type === 'UpdateExpression') readPattern(expression.argument);
   }
 
+  if (node.type === 'AssignmentExpression') {
+    readPattern(node.left);
+  }
+
+  if (node.type === 'UpdateExpression') {
+    readPattern(node.argument);
+  }
+
   return [...names];
 }
+
+function findAssignmentsAndUpdates(node, list = []) {
+  if (!node) return list;
+
+  if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(node.type)) {
+    return list;
+  }
+
+  if (node.type === 'AssignmentExpression' || node.type === 'UpdateExpression') {
+    list.push(node);
+  }
+
+  for (const key in node) {
+    if (node[key] && typeof node[key] === 'object') {
+      if (Array.isArray(node[key])) {
+        node[key].forEach((child) => findAssignmentsAndUpdates(child, list));
+      } else if (node[key].type) {
+        findAssignmentsAndUpdates(node[key], list);
+      }
+    }
+  }
+  return list;
+}
+
+function getSafeTempVarName(source) {
+  let suffix = 0;
+  let name = '__cfv_temp';
+  while (source.includes(name)) {
+    suffix += 1;
+    name = `__cfv_temp_${suffix}`;
+  }
+  return name;
+}
+
+function hasAwaitOrYield(node) {
+  let found = false;
+  function walk(n) {
+    if (!n || found) return;
+    if (['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(n.type)) {
+      return; // Skip walking nested function scopes
+    }
+    if (n.type === 'AwaitExpression' || n.type === 'YieldExpression') {
+      found = true;
+      return;
+    }
+    for (const key in n) {
+      if (n[key] && typeof n[key] === 'object') {
+        if (Array.isArray(n[key])) {
+          n[key].forEach(walk);
+        } else if (n[key].type) {
+          walk(n[key]);
+        }
+      }
+    }
+  }
+  walk(node);
+  return found;
+}
+
 
 function makeSnapshot(names) {
   if (!names.length) return '{}';
@@ -107,6 +174,29 @@ function visit(source, node, inserts) {
       instrumentBranch(source, node.consequent, inserts);
       if (node.alternate) instrumentBranch(source, node.alternate, inserts);
       break;
+    case 'ReturnStatement': {
+      if (node.argument) {
+        if (!hasAwaitOrYield(node.argument)) {
+          const changes = findAssignmentsAndUpdates(node.argument);
+          if (changes.length > 0) {
+            const names = new Set();
+            changes.forEach((expr) => {
+              getAssignedNames(expr).forEach((name) => names.add(name));
+            });
+            if (names.size > 0) {
+              const line = node.loc?.start?.line ?? lineOf(source, node.start);
+              const tempVar = getSafeTempVarName(source);
+              const captureCall = `__trace.capture(${line}, "assignment", ${makeSnapshot([...names])})`;
+              insertAt(inserts, node.argument.start, `(() => { const ${tempVar} = (`, 1);
+              insertAt(inserts, node.argument.end, `); ${captureCall}; return ${tempVar}; })()`, -1);
+            }
+          }
+        }
+        visit(source, node.argument, inserts);
+      }
+      break;
+    }
+
     case 'LabeledStatement':
       visit(source, node.body, inserts);
       break;
