@@ -1,257 +1,174 @@
 # CodeFlowViz 2.0
 
 <p align="center">
-  <strong>Visualize JavaScript execution as a real-time cockpit: line-by-line flow, variable state, and replayable runtime telemetry for architects and engineers.</strong>
+  <strong>See JavaScript execute, step by step.</strong><br />
+  Turn source code into a replayable timeline of control flow, logs, and variable state.
 </p>
 
 <p align="center">
-  <a href="https://code-flow-viz-2-0.vercel.app"><strong>Launch the live Vercel deployment →</strong></a>
+  <a href="https://code-flow-viz-2-0.vercel.app"><strong>Try the live demo</strong></a>
+  ·
+  <a href="#quick-start">Run locally</a>
+  ·
+  <a href="CONTRIBUTIONS.md">Contribute</a>
 </p>
-<p align="center"><strong>Note: If you haven't already, please consider leaving a ⭐ on the repository!</strong></p>
+
 <p align="center">
-  <img alt="Next.js 14" src="https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=nextdotjs" />
-  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-Express-339933?style=for-the-badge&logo=nodedotjs&logoColor=white" />
-  <img alt="AST Tracing" src="https://img.shields.io/badge/AST-Tracing-7C3AED?style=for-the-badge" />
-  <img alt="Monorepo" src="https://img.shields.io/badge/Architecture-Decoupled%20Monorepo-0EA5E9?style=for-the-badge" />
+  <img alt="Next.js 14" src="https://img.shields.io/badge/Next.js-14-000000?style=flat-square&logo=nextdotjs" />
+  <img alt="Node.js and Express" src="https://img.shields.io/badge/Node.js-Express-339933?style=flat-square&logo=nodedotjs&logoColor=white" />
+  <img alt="Monaco Editor" src="https://img.shields.io/badge/Editor-Monaco-007ACC?style=flat-square" />
+  <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-7C3AED?style=flat-square" />
 </p>
 
----
+![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/codeflowviz-social-preview.png)
 
-## Visual Preview
+## What it does
 
-> **Execution Cockpit / Void design system preview**  
-> Replace this placeholder with a production screenshot at `docs/assets/execution-cockpit-void.png` once the cockpit capture is finalized.
+Paste a JavaScript snippet, run it in an isolated worker, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
 
-```text
-┌────────────────────────────────────────────────────────────────────────────┐
-│ CODEFLOWVIZ EXECUTION COCKPIT · VOID                                       │
-├───────────────────────────────┬───────────────────────┬────────────────────┤
-│ Monaco Code Pane              │ Timeline / Scrubber   │ Variable Inspector │
-│  ▸ active line illumination   │  step 001 ━━━━━●────  │  value  number  6  │
-│  ▸ AST trace markers          │  step into / over/ out│  result number  8  │
-│  ▸ sandbox execution status   │  replay snapshots     │  logs   structured │
-└───────────────────────────────┴───────────────────────┴────────────────────┘
-```
+- Follow line-level execution snapshots.
+- Scrub backward and forward through a completed run.
+- Inspect variables and captured logs at each step.
+- See the active source line alongside runtime state.
+- Estimate algorithmic complexity from loop nesting.
+- Switch themes and dock the execution panel at the bottom or right.
 
-<!--
-![CodeFlowViz Execution Cockpit — Void design system](docs/assets/execution-cockpit-void.png)
--->
+## Where it helps
 
-## Core Features
+- **Learning algorithms:** see loops, branches, and state changes instead of tracing them on paper.
+- **Teaching:** walk through a snippet one execution step at a time.
+- **Code review:** explain small control-flow examples with a shared visual model.
+- **Debugging snippets:** find the step where a value first becomes unexpected.
 
-| Capability | Cockpit Signal |
-| --- | --- |
-| **Real-time AST Tracing** | Instruments JavaScript syntax trees before execution to capture line-level snapshots as code runs. |
-| **Live Variable Inspector** | Surfaces scoped runtime values with type badges, serialized previews, and snapshot-aware inspection. |
-| **Playback Scrubber** | Replays execution history so engineers can step into, over, and out of logic flow without rerunning mental simulations. |
-| **Tonal Layering “Void” Aesthetic** | Uses high-contrast depth, restrained neon accents, and cockpit-style panels to keep dense telemetry readable. |
+## CodeFlowViz vs. a traditional debugger
 
-## Why CodeFlowViz?
+| | CodeFlowViz | Traditional debugger |
+| --- | --- | --- |
+| Primary goal | Visual explanation and replay | Full application debugging |
+| Setup | Paste a small snippet and run | Attach to a local or remote process |
+| Execution history | Timeline stays available after the run | Usually inspected at live breakpoints |
+| Best for | Learning, teaching, and reasoning about small examples | Production applications and deep runtime inspection |
 
-Traditional debuggers are powerful, but they are often optimized for local breakpoints rather than system-level comprehension. CodeFlowViz 2.0 turns execution into a navigable visual timeline, helping teams explain algorithms, review control flow, and reason about state transitions with less context switching.
-
-## The Deployment Story
-
-CodeFlowViz 2.0 is intentionally split into a decoupled monorepo:
-
-- `frontend/` runs the cockpit UI as a Next.js 14 application, optimized for Vercel delivery.
-- `backend/` runs the Express execution service in a long-lived Node.js environment, designed for Railway or a comparable host.
-
-This separation solves a practical production constraint: sandboxed code tracing can exceed short serverless execution windows. By moving AST instrumentation and worker-thread execution to Railway while keeping the interface on Vercel, the project preserves a fast frontend deployment path without forcing the execution engine into serverless timeout limits.
+CodeFlowViz complements browser and IDE debuggers; it is not intended to replace them.
 
 ## Architecture
 
-```text
-┌────────────────────────────┐       HTTPS        ┌─────────────────────────────┐
-│ Frontend · Vercel          │ ─────────────────▶ │ Backend · Railway           │
-│ Next.js 14 cockpit UI      │                    │ Node.js + Express API       │
-│ Tailwind CSS design layer  │ ◀───────────────── │ AST instrumentation sandbox │
-│ Framer Motion transitions  │    trace payloads  │ Worker-thread isolation     │
-└────────────────────────────┘                    └─────────────────────────────┘
+```mermaid
+flowchart LR
+    UI["Next.js cockpit<br/>Monaco + timeline"] -->|POST /api/execute| API["Express API"]
+    API --> WORKER["Isolated worker<br/>AST instrumentation"]
+    WORKER -->|snapshots + logs| UI
 ```
 
-### Technology Stack
-
-| Layer | Tools |
+| Layer | Technology |
 | --- | --- |
-| Frontend | Next.js 14, React, Tailwind CSS, Framer Motion, Monaco Editor |
+| Frontend | Next.js 14, React, Framer Motion, Monaco Editor |
 | Backend | Node.js, Express, worker threads |
-| Execution Engine | AST instrumentation, sandboxed execution, line-level snapshots |
-| Deployment | Vercel frontend, Railway backend |
-| Initial Language | JavaScript |
+| Tracing | Acorn-based JavaScript instrumentation |
+| Deployment | Vercel frontend, long-running Node.js backend |
 
-## Installation & Setup
+The frontend and execution service are separate workspaces. This keeps the UI easy to deploy while allowing traced code to run in a resource-limited worker instead of a short-lived frontend function.
 
-### Repository Layout
+## Quick start
 
-```text
-CodeFlowViz-2.0/
-├── frontend/   # Next.js cockpit UI (Vercel target)
-├── backend/    # Express + AST execution service (Railway target)
-└── package.json
-```
-
-The root workspace orchestrates both projects so common scripts (`npm run dev`, `npm run build`) can execute frontend and backend tasks together.
-
-### Prerequisites
+### Requirements
 
 - Node.js 20+
 - npm 10+
-- A Vercel project for `frontend/` deployment
-- A Railway service, or another long-running Node.js host, for `backend/` deployment
 
-### 1. Clone the monorepo
+### Install and run
 
 ```bash
-git clone https://github.com/<your-org>/CodeFlowViz-2.0.git
+git clone https://github.com/kauntiaakash2/CodeFlowViz-2.0.git
 cd CodeFlowViz-2.0
 npm install
 ```
 
-### 2. Configure environment variables
-
-Create environment files for local development.
-
-#### Frontend: `frontend/.env.local`
+Create `frontend/.env.local`:
 
 ```bash
 NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute
 ```
 
-For production on Vercel, point this value to the deployed Railway endpoint:
-
-```bash
-NEXT_PUBLIC_EXECUTE_API_URL=https://<your-railway-service>.up.railway.app/api/execute
-```
-
-#### Backend: `backend/.env`
+Optionally create `backend/.env`:
 
 ```bash
 PORT=4000
 CORS_ORIGIN=http://localhost:3000
 ```
 
-For production on Railway, set `CORS_ORIGIN` to your Vercel deployment URL:
-
-```bash
-CORS_ORIGIN=https://<your-vercel-project>.vercel.app
-```
-
-### 3. Run the full cockpit locally
+Start both workspaces:
 
 ```bash
 npm run dev
 ```
 
-This starts both workspaces:
+Open [http://localhost:3000](http://localhost:3000). The backend runs at `http://localhost:4000`.
 
-| Workspace | Default URL | Command |
-| --- | --- | --- |
-| Frontend | `http://localhost:3000` | `npm run dev:frontend` |
-| Backend | `http://localhost:4000` | `npm run dev:backend` |
+### Useful commands
 
-#### 3.1 Build and production preview
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start frontend and backend development servers |
+| `npm run dev:frontend` | Start only the Next.js app |
+| `npm run dev:backend` | Start only the execution service |
+| `npm run build` | Create the frontend production build |
+| `npm run start:frontend` | Start the built frontend |
+| `npm run start:backend` | Start the backend |
+| `npm run lint` | Lint the frontend |
 
-```bash
-npm run build
-npm run start
-```
-
-Use this flow to verify production bundles before deploying to Vercel/Railway.
-
-### 4. Verify the backend health endpoint
+Verify the backend:
 
 ```bash
-curl http://localhost:4000/health
+curl http://localhost:4000/api/health
 ```
-
-Expected response:
 
 ```json
 {
-  "ok": true,
-  "service": "codeflowviz-backend"
+  "status": "ok",
+  "service": "codeflowviz-backend",
+  "timestamp": "..."
 }
 ```
 
-## Deployment
+## API
 
-### API Contract (frontend ↔ backend)
+Send code to `POST /api/execute`:
 
-The frontend posts source code to the backend execution endpoint:
-
-- **Method:** `POST`
-- **Endpoint:** `/api/execute`
-- **Content-Type:** `application/json`
-
-Example payload:
-
-```json
-{
-  "code": "function add(a,b){return a+b}; add(2,3);"
-}
+```bash
+curl --request POST http://localhost:4000/api/execute \
+  --header "Content-Type: application/json" \
+  --data '{"code":"let total = 0; for (let i = 1; i <= 3; i++) total += i; console.log(total);","language":"javascript"}'
 ```
 
-The backend responds with trace telemetry consumed by the timeline and variable inspector panels.
+The response includes the execution result, logs, timeline snapshots, duration, timeout state, and a successful run's complexity estimate.
 
-### Frontend on Vercel
+## Current scope and limitations
 
-1. Import the repository into Vercel.
-2. Set the project root to `frontend/`.
-3. Add `NEXT_PUBLIC_EXECUTE_API_URL` with the deployed backend `/api/execute` URL.
-4. Deploy.
-
-### Backend on Railway
-
-1. Create a Railway service from the same repository.
-2. Set the service root to `backend/`.
-3. Add `PORT` if required by your Railway configuration.
-4. Add `CORS_ORIGIN` with the Vercel frontend URL.
-5. Deploy the Express service.
-
-### Post-deployment checklist
-
-1. Open the deployed frontend URL and run a simple snippet (`const x = 1 + 1`) to verify trace rendering.
-2. Confirm backend health is reachable from the public host: `GET /health`.
-3. Validate CORS by checking that browser requests to `/api/execute` succeed without preflight errors.
-4. Verify backend logs show execution steps and no worker-thread crashes.
-
-## Troubleshooting
-
-- **`Failed to fetch` from frontend**: Ensure `NEXT_PUBLIC_EXECUTE_API_URL` points to the backend `/api/execute` path and protocol (https/http) matches deployment.
-- **CORS errors in browser console**: Verify `CORS_ORIGIN` exactly matches the frontend origin, including scheme and subdomain.
-- **Port binding failures on Railway**: Confirm the service uses Railway-provided `PORT` and does not hardcode `4000` in production.
-- **No trace events returned**: Inspect backend logs for parser/runtime errors; test the same snippet directly against the API with `curl`.
+- The end-to-end editor experience currently targets JavaScript.
+- The backend accepts Java through an early execution path, but Java is not yet fully exposed in the UI.
+- Python, C, and C++ tracing are not supported yet.
+- The complexity value is a heuristic based on detected loop nesting, not a formal Big-O proof.
+- Runs accept at most 20,000 characters and are time- and memory-limited.
+- Trace sessions are not yet persisted or shareable.
+- Only run code you understand; worker isolation reduces risk but is not a guarantee for hostile code.
 
 ## Roadmap
 
-- **Multi-language execution** — Python and C++ tracing after the JavaScript execution path is hardened.
-- **Advanced Logic Node overlays** — Higher-level control-flow nodes rendered above raw trace events.
-- **Trace sharing** — Exportable sessions for code reviews, incident analysis, and teaching.
-- **Custom cockpit layouts** — Persisted panels for architecture reviews, demos, and debugging workflows.
-- **Expanded sandbox policies** — More granular limits for memory, execution time, and API access.
-
-
-## Open Source Program Context
-
-This repository is prepared for **GirlScript Summer of Code (GSSoC)** contributions and mentoring workflows.
-
-> Note: **GSSoC** refers to **GirlScript Summer of Code**, not Google Summer of Code (GSoC).
-
-If you are contributing through GSSoC, please mention the relevant issue number and program context in your pull request description so maintainers can track contributions accurately.
+- Expand language support after the JavaScript path is hardened.
+- Add higher-level control-flow overlays.
+- Make trace sessions exportable and shareable.
+- Persist custom cockpit layouts.
+- Strengthen sandbox policies and test coverage.
 
 ## Contributing
 
-Contributions are welcome. If you care about debuggers, visualization, language tooling, developer education, or high-performance UI systems, there is room to help.
+Contributions are welcome through GirlScript Summer of Code (GSSoC) and outside it. Start with an open issue, keep the pull request focused, and include screenshots or trace examples for behavior changes.
 
-Recommended first steps:
+Read the [contribution guide](CONTRIBUTIONS.md) and [code of conduct](CODE_OF_CONDUCT.md) before opening a pull request.
 
-1. Open an issue with the problem, proposal, or trace scenario you want to improve.
-2. Fork the repository and create a focused feature branch.
-3. Keep changes small, typed, and easy to review.
-4. Include screenshots or trace payload examples when UI behavior changes.
-5. Submit a pull request with a clear summary and validation notes.
+If CodeFlowViz helps you learn or explain code, a star helps other developers discover it.
 
 ## License
 
-License details have not been published yet. Add a `LICENSE` file before distributing or accepting external production use.
+Released under the [MIT License](LICENSE).
