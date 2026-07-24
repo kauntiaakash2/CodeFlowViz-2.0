@@ -146,6 +146,15 @@ async function runJava(code, timeoutMs) {
   }
 }
 
+process.on('unhandledRejection', (reason) => {
+  parentPort.postMessage({
+    ok: false,
+    error: reason instanceof Error ? reason.message : 'Unhandled rejection in sandbox',
+    logs: [],
+    timeline: [],
+  });
+});
+
 async function run() {
   const { code, timeoutMs, language } = workerData;
   if (language === 'java') {
