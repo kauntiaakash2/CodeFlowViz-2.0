@@ -117,12 +117,26 @@ export default function CodeEditor() {
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
+
+    // Apply initial decorations on mount if a snapshot is already selected
+    if (selectedSnapshotIndex !== null) {
+      const snapshot = snapshots[selectedSnapshotIndex];
+      if (snapshot) {
+        setTimeout(() => highlightLine(snapshot.line), 150);
+      }
+    }
   };
 
-  const highlightLine = (line: number) => {
+  const highlightLine = useCallback((line: number | null) => {
     const editor = editorRef.current;
     const monaco = monacoRef.current;
     if (!editor || !monaco) return;
+
+    if (line === null) {
+      decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+      return;
+    }
+
     decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
       {
         range: new monaco.Range(line, 1, line, 1),
@@ -134,7 +148,19 @@ export default function CodeEditor() {
       },
     ]);
     editor.revealLineInCenter(line);
-  };
+  }, []);
+
+  // Synchronize Monaco highlighting with context-driven selection changes
+  useEffect(() => {
+    if (selectedSnapshotIndex === null) {
+      highlightLine(null);
+    } else {
+      const snapshot = snapshots[selectedSnapshotIndex];
+      if (snapshot) {
+        highlightLine(snapshot.line);
+      }
+    }
+  }, [selectedSnapshotIndex, snapshots, highlightLine]);
 
   const selectSnapshot = (index: number) => {
     const snapshot = snapshots[index];
