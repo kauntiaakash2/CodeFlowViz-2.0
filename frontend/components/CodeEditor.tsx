@@ -58,6 +58,7 @@ export default function CodeEditor() {
   const dragStartX = useRef(0);
   const dragStartHeight = useRef(0);
   const dragStartWidth = useRef(0);
+  const isRequestPendingRef = useRef(false);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -263,13 +264,17 @@ export default function CodeEditor() {
   };
 
   const runCode = async () => {
-    setIsRunning(true);
-    setOutput(null);
-    setSelectedSnapshotIndex(null);
-    if (editorRef.current) {
-      decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
-    }
+    if (isRequestPendingRef.current) return;
+    isRequestPendingRef.current = true;
+
     try {
+      setIsRunning(true);
+      setOutput(null);
+      setSelectedSnapshotIndex(null);
+      if (editorRef.current) {
+        decorationsRef.current = editorRef.current.deltaDecorations(decorationsRef.current, []);
+      }
+
       const response = await fetch(executionApiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -291,6 +296,7 @@ export default function CodeEditor() {
         error: error instanceof Error ? error.message : 'Unable to reach the execution sandbox.',
       });
     } finally {
+      isRequestPendingRef.current = false;
       setIsRunning(false);
     }
   };
