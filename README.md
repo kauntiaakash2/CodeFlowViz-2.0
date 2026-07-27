@@ -20,7 +20,7 @@
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-7C3AED?style=flat-square" />
 </p>
 
-![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/codeflowviz-social-preview.png)
+![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/CodeFlowViz 2.0 execution cockpit.png)
 
 ## What it does
 
