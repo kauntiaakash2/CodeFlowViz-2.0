@@ -80,28 +80,30 @@ What gets installed:
 
 ### Step 3 — Create environment files
 
-The app requires two small `.env` files for local development. **These files are git-ignored and must be created manually.**
+The frontend automatically proxies execution requests to
+`http://127.0.0.1:4000/api/execute` during local development. Create
+`frontend/.env.local` only when your backend uses a different URL.
 
 #### 3a. Frontend — `frontend/.env.local`
 
-This tells the Next.js UI where to send code-execution requests:
+This tells the Next.js server proxy where to send code-execution requests:
 
 **macOS / Linux / Git Bash:**
 
 ```bash
-echo 'NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute' > frontend/.env.local
+echo 'EXECUTE_API_URL=http://localhost:4000/api/execute' > frontend/.env.local
 ```
 
 **Windows (PowerShell):**
 
 ```powershell
-Set-Content frontend\.env.local 'NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute'
+Set-Content frontend\.env.local 'EXECUTE_API_URL=http://localhost:4000/api/execute'
 ```
 
 Or simply create the file manually in your editor with the content:
 
 ```env
-NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute
+EXECUTE_API_URL=http://localhost:4000/api/execute
 ```
 
 #### 3b. Backend — `backend/.env`
@@ -138,7 +140,7 @@ If you hit errors on first run because of missing variables, copy-paste the valu
 **`frontend/.env.local`**
 
 ```env
-NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute
+EXECUTE_API_URL=http://localhost:4000/api/execute
 ```
 
 **`backend/.env`**
@@ -227,9 +229,8 @@ npm run start:backend
 | Symptom                              | Fix                                                                                                                                                                   |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `npm install` fails                  | Check `node -v` ≥ 18 and `npm -v` ≥ 9; reinstall Node.js if needed                                                                                                    |
-| Frontend shows "Failed to fetch"     | Confirm `frontend/.env.local` exists and `NEXT_PUBLIC_EXECUTE_API_URL` points to `http://localhost:4000/api/execute`                                                  |
-| CORS error in browser console        | Confirm `backend/.env` has `CORS_ORIGIN=http://localhost:3000` (exact match, no trailing slash)                                                                       |
-| Port 4000 already in use             | Change `PORT` in `backend/.env` and update `NEXT_PUBLIC_EXECUTE_API_URL` to match                                                                                     |
+| Frontend reports an unreachable backend | Confirm the backend is running and `EXECUTE_API_URL` points to its `/api/execute` endpoint                                                                        |
+| Port 4000 already in use             | Change `PORT` in `backend/.env` and update `EXECUTE_API_URL` to match                                                                                                 |
 | Backend starts but returns no traces | Check backend terminal for parser errors; test directly: `curl -X POST http://localhost:4000/api/execute -H "Content-Type: application/json" -d "{\"code\":\"1+1\"}"` |
 | `next: command not found`            | Run `npm install` from the repo root (not inside `frontend/`)                                                                                                         |
 
@@ -257,7 +258,8 @@ The backend responds with trace telemetry consumed by the timeline and variable 
 
 1. Import the repository into Vercel.
 2. Set the project root to `frontend/`.
-3. Add `NEXT_PUBLIC_EXECUTE_API_URL` with the deployed backend `/api/execute` URL.
+3. Add the server-only `EXECUTE_API_URL` environment variable with the deployed
+   backend `/api/execute` URL.
 4. Deploy.
 
 ### Backend on Railway
@@ -272,13 +274,15 @@ The backend responds with trace telemetry consumed by the timeline and variable 
 
 1. Open the deployed frontend URL and run a simple snippet (`const x = 1 + 1`) to verify trace rendering.
 2. Confirm backend health is reachable from the public host: `GET /health`.
-3. Validate CORS by checking that browser requests to `/api/execute` succeed without preflight errors.
+3. Confirm the same-origin frontend `/api/execute` proxy reaches the backend.
 4. Verify backend logs show execution steps and no worker-thread crashes.
 
 ## Troubleshooting
 
-- **`Failed to fetch` from frontend**: Ensure `NEXT_PUBLIC_EXECUTE_API_URL` points to the backend `/api/execute` path and protocol (https/http) matches deployment.
-- **CORS errors in browser console**: Verify `CORS_ORIGIN` exactly matches the frontend origin, including scheme and subdomain.
+- **Execution backend is not configured**: Add `EXECUTE_API_URL` to the Vercel
+  project and redeploy. It must be the public backend `/api/execute` URL.
+- **Execution backend is unreachable**: Confirm the backend health endpoint is
+  public and `EXECUTE_API_URL` uses the correct HTTPS hostname and path.
 - **Port binding failures on Railway**: Confirm the service uses Railway-provided `PORT` and does not hardcode `4000` in production.
 - **No trace events returned**: Inspect backend logs for parser/runtime errors; test the same snippet directly against the API with `curl`.
 

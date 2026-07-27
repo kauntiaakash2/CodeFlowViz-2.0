@@ -71,9 +71,8 @@ export function PlaybackProvider({
     setOutput(null);
     playback.setSelectedSnapshotIndex(null);
 
-    const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
     try {
-      const response = await fetch(executionApiUrl, {
+      const response = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, timeoutMs: 1000 }),
