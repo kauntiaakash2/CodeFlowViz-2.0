@@ -1,18 +1,20 @@
 'use client';
 
-import React, { createContext, useContext, useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { usePlaybackScrubber, type TimelineEvent } from '@/hooks/usePlaybackScrubber';
+import {
+  normalizeExecutionResponse,
+  type ExecutionResponse,
+} from '@/lib/executionResponse';
 
-export interface ExecutionResponse {
-  ok: boolean;
-  error?: string;
-  result?: { type: string; value: string };
-  logs: Array<{ level: string; message: string }>;
-  timeline: TimelineEvent[];
-  instrumentation?: { hookCount: number };
-  durationMs?: number;
-  timedOut?: boolean;
-}
+export type { ExecutionResponse } from '@/lib/executionResponse';
 
 interface PlaybackContextType {
   code: string;
@@ -53,10 +55,7 @@ export function PlaybackProvider({
   const [isRunning, setIsRunning] = useState(false);
   const isRequestPendingRef = useRef(false);
 
-  const snapshots = useMemo(
-  () => output?.timeline ?? [],
-  [output]
-  );
+  const snapshots = useMemo(() => output?.timeline ?? [], [output]);
 
   const playback = usePlaybackScrubber({
     snapshots,
@@ -67,26 +66,21 @@ export function PlaybackProvider({
     if (isRequestPendingRef.current) return;
     isRequestPendingRef.current = true;
 
+    playback.pause();
     setIsRunning(true);
     setOutput(null);
     playback.setSelectedSnapshotIndex(null);
 
     const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://localhost:4000/api/execute';
     try {
-  const response = await fetch(executionApiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code, timeoutMs: 1000 }),
-  });
+      const response = await fetch(executionApiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, timeoutMs: 1000 }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      const result = normalizeExecutionResponse(payload, response);
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(
-      errorData.error ?? `Execution failed (${response.status}).`
-    );
-  }
-
- const result = (await response.json()) as ExecutionResponse;
       setOutput(result);
       if (result.timeline?.[0]) {
         playback.setSelectedSnapshotIndex(0);
@@ -104,34 +98,27 @@ export function PlaybackProvider({
       isRequestPendingRef.current = false;
       setIsRunning(false);
     }
-  }, [code, playback.setSelectedSnapshotIndex]);
+  }, [code, playback.pause, playback.setSelectedSnapshotIndex]);
 
   const contextValue = useMemo(
-  () => ({
-    code,
-    setCode,
-    output,
-    setOutput,
-    isRunning,
-    runCode,
-    snapshots,
-    playback,
-  }),
-  [
-    code,
-    output,
-    isRunning,
-    runCode,
-    snapshots,
-    playback,
-  ]
-);
+    () => ({
+      code,
+      setCode,
+      output,
+      setOutput,
+      isRunning,
+      runCode,
+      snapshots,
+      playback,
+    }),
+    [code, output, isRunning, runCode, snapshots, playback],
+  );
 
-return (
-  <PlaybackContext.Provider value={contextValue}>
-    {children}
-  </PlaybackContext.Provider>
-);
+  return (
+    <PlaybackContext.Provider value={contextValue}>
+      {children}
+    </PlaybackContext.Provider>
+  );
 }
 
 export function usePlayback() {
