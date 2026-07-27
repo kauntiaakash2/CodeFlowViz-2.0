@@ -116,10 +116,14 @@ test('RequestQueue', async (t) => {
   await t.test('rejects when queue is full', async () => {
     const q = new RequestQueue(1, 1);
     await q.acquire();
+    const queued = q.acquire();
 
     await assert.rejects(q.acquire(), /Server is busy/);
 
     q.release();
+    await queued;
+    q.release();
+
     assert.strictEqual(q.active, 0);
   });
 });
