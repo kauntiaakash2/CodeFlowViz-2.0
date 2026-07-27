@@ -6,11 +6,32 @@ export default function ThemeToggle() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    const saved = localStorage.getItem("theme") as "dark" | "light" | null;
-    if (saved) {
-      setTheme(saved);
-      document.documentElement.setAttribute("data-theme", saved);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const savedTheme = localStorage.getItem("theme");
+    const documentTheme = document.documentElement.getAttribute("data-theme");
+    const resolvedTheme =
+      documentTheme === "light" || documentTheme === "dark"
+        ? documentTheme
+        : mediaQuery.matches
+          ? "dark"
+          : "light";
+
+    if (savedTheme !== "light" && savedTheme !== "dark" && savedTheme !== null) {
+      localStorage.removeItem("theme");
     }
+
+    setTheme(resolvedTheme);
+    document.documentElement.setAttribute("data-theme", resolvedTheme);
+
+    const handleSystemThemeChange = (event: MediaQueryListEvent) => {
+      if (localStorage.getItem("theme") !== null) return;
+      const nextTheme = event.matches ? "dark" : "light";
+      setTheme(nextTheme);
+      document.documentElement.setAttribute("data-theme", nextTheme);
+    };
+
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+    return () => mediaQuery.removeEventListener("change", handleSystemThemeChange);
   }, []);
 
   const toggleTheme = () => {
@@ -25,7 +46,8 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      aria-label="Toggle theme"
+      aria-label={`Switch to ${isDark ? "light" : "dark"} theme`}
+      title={`Switch to ${isDark ? "light" : "dark"} theme`}
       style={{
         display: "flex",
         alignItems: "center",
