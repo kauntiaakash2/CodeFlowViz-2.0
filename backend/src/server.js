@@ -125,8 +125,9 @@ app.post('/api/execute', async (request, response) => {
     return;
   }
 
-  // 1. Generate the Big-O Estimate from the AST
-  const complexityEstimate = estimateComplexity(code);
+  // 1. Generate the Big-O Estimate from the AST (skip for non-JavaScript languages)
+  const isJavaScript = language === 'javascript' || language === 'js';
+  const complexityEstimate = isJavaScript ? estimateComplexity(code) : { bigO: 'Unknown', explanation: 'Complexity analysis only available for JavaScript' };
 
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
   const result = await runInSandbox(code, normalizedTimeoutMs, language);
