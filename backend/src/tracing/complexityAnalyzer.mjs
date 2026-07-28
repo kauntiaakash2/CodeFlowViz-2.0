@@ -2,7 +2,7 @@ import * as acorn from 'acorn';
 
 export function estimateComplexity(code) {
   try {
-    const ast = acorn.parse(code, { ecmaVersion: 2022, sourceType: 'module' });
+    const ast = acorn.parse(code, { ecmaVersion: 2022, sourceType: 'script' });
     let maxDepth = 0;
 
     function walk(node, currentDepth) {
