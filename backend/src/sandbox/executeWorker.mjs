@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
-import { inspect, promisify } from 'node:util';
-import { exec } from 'node:child_process';
+import { inspect } from 'node:util';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -10,7 +10,68 @@ import crypto from 'node:crypto';
 import { instrumentCode as instrumentJS } from '../tracing/instrument.mjs';
 import { instrumentCode as instrumentJava } from '../tracing/javaInstrumenter.mjs';
 
-const execAsync = promisify(exec);
+function createSpawnTracker(tempDir) {
+  const activePids = new Set();
+  let cleanupTempDir = tempDir;
+
+  function sendMetadata() {
+    if (parentPort) {
+      parentPort.postMessage({
+        type: 'child-processes',
+        pids: [...activePids],
+        tempDir: cleanupTempDir,
+      });
+    }
+  }
+
+  function spawnTracked(command, options = {}) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(command, {
+        ...options,
+        shell: true,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      activePids.add(child.pid);
+      sendMetadata();
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => { stdout += data.toString(); });
+      child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      const onClose = (code, signal) => {
+        activePids.delete(child.pid);
+        sendMetadata();
+
+        if (code !== 0) {
+          const error = new Error(
+            `Command failed with exit code ${code}` +
+            (signal ? ` (signal: ${signal})` : '')
+          );
+          error.stdout = stdout;
+          error.stderr = stderr;
+          reject(error);
+        } else {
+          resolve({ stdout, stderr });
+        }
+      };
+
+      const onError = (err) => {
+        activePids.delete(child.pid);
+        sendMetadata();
+        reject(err);
+      };
+
+      child.on('close', onClose);
+      child.on('error', onError);
+    });
+  }
+
+  return { spawnTracked, activePids, sendMetadata };
+}
 
 const MAX_LOGS = 50;
 const MAX_LOG_CHARS = 2_000;
@@ -87,6 +148,10 @@ async function runJava(code, timeoutMs) {
 
   const runId = crypto.randomUUID();
   const tempDir = path.join(os.tmpdir(), `codeflowviz-${runId}`);
+  const { spawnTracked, activePids, sendMetadata } = createSpawnTracker(tempDir);
+
+  // Report initial tempDir to parent before any child processes start
+  sendMetadata();
   
   try {
     await fs.mkdir(tempDir, { recursive: true });
@@ -106,8 +171,8 @@ async function runJava(code, timeoutMs) {
     const mainClassPath = path.join(tempDir, 'Main.java');
     await fs.writeFile(mainClassPath, instrumentedCode);
 
-    await execAsync('javac Main.java _Trace.java', { cwd: tempDir, timeout: 5000 });
-    const { stdout, stderr } = await execAsync('java Main', { cwd: tempDir, timeout: timeoutMs });
+    await spawnTracked('javac Main.java _Trace.java', { cwd: tempDir, timeout: 5000 });
+    const { stdout, stderr } = await spawnTracked('java Main', { cwd: tempDir, timeout: timeoutMs });
 
     const outputLines = stdout.split('\n');
     let stepCount = 1;
@@ -142,6 +207,10 @@ async function runJava(code, timeoutMs) {
     return { ok: false, error: error.message || 'Java execution failed', logs, timeline, instrumentation: { hookCount } };
   } finally {
     // cleanup temp dir so we don't nuke the server disk
+    // Also clean up any PIDs not yet removed (e.g., if a process was orphaned)
+    for (const pid of activePids) {
+      try { process.kill(pid); } catch {}
+    }
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }

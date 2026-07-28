@@ -5,6 +5,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import rateLimit from 'express-rate-limit';
+import { execSync } from 'node:child_process';
+import { rmSync } from 'node:fs';
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
@@ -19,6 +21,33 @@ const __dirname = path.dirname(__filename);
 const workerPath = path.join(__dirname, 'sandbox/executeWorker.mjs');
 
 const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
+
+export function treeKill(pid) {
+  try {
+    if (process.platform === 'win32') {
+      execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+    } else {
+      process.kill(-pid, 'SIGTERM');
+    }
+  } catch {
+    // process already exited
+  }
+}
+
+export function cleanupWorkerResources(resources) {
+  if (!resources) return;
+  for (const pid of resources.pids) {
+    treeKill(pid);
+  }
+  if (resources.tempDir) {
+    try {
+      rmSync(resources.tempDir, { recursive: true, force: true });
+    } catch {
+      // already cleaned up or doesn't exist
+    }
+  }
+  resources.pids.clear();
+}
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
@@ -69,6 +98,10 @@ function runInSandbox(code, timeoutMs, language = 'javascript') {
   });
 }
 
+const workerResources = new WeakMap();
+
+export { workerResources };
+
 function executeInWorker(code, timeoutMs, language, startedAt) {
   return new Promise((resolve) => {
     let worker;
@@ -90,6 +123,9 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
     let settled = false;
     let messageReceived = false;
     const killTimer = setTimeout(() => {
+      const resources = workerResources.get(worker);
+      cleanupWorkerResources(resources);
+      workerResources.delete(worker);
       finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
     }, timeoutMs + 100);
 
@@ -108,9 +144,19 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
       });
     }
 
-    worker.once('message', (message) => {
-      messageReceived = true;
-      finish(message);
+    worker.on('message', (message) => {
+      if (message && message.type === 'child-processes') {
+        workerResources.set(worker, {
+          pids: new Set(message.pids),
+          tempDir: message.tempDir,
+        });
+        return;
+      }
+
+      if (!messageReceived) {
+        messageReceived = true;
+        finish(message);
+      }
     });
     worker.once('error', (error) => finish({ ok: false, error: error.message }));
     worker.once('exit', (code) => {
@@ -121,6 +167,9 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
 
     const graceTimer = setTimeout(() => {
       if (!messageReceived && !settled) {
+        const resources = workerResources.get(worker);
+        cleanupWorkerResources(resources);
+        workerResources.delete(worker);
         finish({ ok: false, error: 'Worker did not respond within the grace period.' });
       }
     }, timeoutMs + 200);
@@ -180,6 +229,9 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
 });
 
-app.listen(port, () => {
-  console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
-});
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMainModule) {
+  app.listen(port, () => {
+    console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+  });
+}

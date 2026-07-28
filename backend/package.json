@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "node --test src/requestQueue.test.mjs src/tracing/instrument.test.mjs"
+    "test": "node --test src/requestQueue.test.mjs src/tracing/instrument.test.mjs src/sandbox/executeWorker.test.mjs"
   },
   "dependencies": {
     "acorn": "^8.16.0",
