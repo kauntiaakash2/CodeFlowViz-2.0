@@ -20,7 +20,7 @@
   <img alt="MIT License" src="https://img.shields.io/badge/license-MIT-7C3AED?style=flat-square" />
 </p>
 
-![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/codeflowviz-social-preview.png)
+![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/CodeFlowViz_2.0_execution_cockpit.png)
 
 ## What it does
 
@@ -84,10 +84,11 @@ cd CodeFlowViz-2.0
 npm install
 ```
 
-Create `frontend/.env.local`:
+The frontend calls its same-origin `/api/execute` proxy. To override the local
+backend URL, create `frontend/.env.local`:
 
 ```bash
-NEXT_PUBLIC_EXECUTE_API_URL=http://localhost:4000/api/execute
+EXECUTE_API_URL=http://localhost:4000/api/execute
 ```
 
 Optionally create `backend/.env`:

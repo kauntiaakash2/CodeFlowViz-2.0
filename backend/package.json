@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+perf/optimize-ast-50
     "benchmark": "node src/tracing/benchmark.mjs",
     "test": "node src/tracing/instrument.test.mjs"
+    "test": "node --test src/requestQueue.test.mjs src/tracing/instrument.test.mjs"
+main
   },
   "dependencies": {
     "acorn": "^8.16.0",
     "express": "^4.19.2",
+    "express-rate-limit": "^8.5.2",
     "tree-sitter": "^0.21.1",
     "tree-sitter-java": "^0.23.5"
   }
