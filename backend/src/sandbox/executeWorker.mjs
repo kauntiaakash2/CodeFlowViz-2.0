@@ -24,11 +24,10 @@ function createSpawnTracker(tempDir) {
     }
   }
 
-  function spawnTracked(command, options = {}) {
+  function spawnTracked(file, args = [], options = {}) {
     return new Promise((resolve, reject) => {
-      const child = spawn(command, {
+      const child = spawn(file, args, {
         ...options,
-        shell: true,
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -171,8 +170,8 @@ async function runJava(code, timeoutMs) {
     const mainClassPath = path.join(tempDir, 'Main.java');
     await fs.writeFile(mainClassPath, instrumentedCode);
 
-    await spawnTracked('javac Main.java _Trace.java', { cwd: tempDir, timeout: 5000 });
-    const { stdout, stderr } = await spawnTracked('java Main', { cwd: tempDir, timeout: timeoutMs });
+    await spawnTracked('javac', ['Main.java', '_Trace.java'], { cwd: tempDir, timeout: 5000 });
+    const { stdout, stderr } = await spawnTracked('java', ['Main'], { cwd: tempDir, timeout: timeoutMs });
 
     const outputLines = stdout.split('\n');
     let stepCount = 1;
@@ -206,10 +205,13 @@ async function runJava(code, timeoutMs) {
   } catch (error) {
     return { ok: false, error: error.message || 'Java execution failed', logs, timeline, instrumentation: { hookCount } };
   } finally {
-    // cleanup temp dir so we don't nuke the server disk
-    // Also clean up any PIDs not yet removed (e.g., if a process was orphaned)
     for (const pid of activePids) {
-      try { process.kill(pid); } catch {}
+      try {
+        process.kill(pid, 'SIGTERM');
+        setTimeout(() => {
+          try { process.kill(pid, 'SIGKILL'); } catch {}
+        }, 2000);
+      } catch {}
     }
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }

@@ -23,11 +23,15 @@ const workerPath = path.join(__dirname, 'sandbox/executeWorker.mjs');
 const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
 export function treeKill(pid) {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return;
   try {
     if (process.platform === 'win32') {
       execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
     } else {
       process.kill(-pid, 'SIGTERM');
+      setTimeout(() => {
+        try { process.kill(-pid, 'SIGKILL'); } catch {}
+      }, 2000);
     }
   } catch {
     // process already exited
@@ -123,9 +127,6 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
     let settled = false;
     let messageReceived = false;
     const killTimer = setTimeout(() => {
-      const resources = workerResources.get(worker);
-      cleanupWorkerResources(resources);
-      workerResources.delete(worker);
       finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
     }, timeoutMs + 100);
 
@@ -134,6 +135,9 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
       settled = true;
       clearTimeout(killTimer);
       clearTimeout(graceTimer);
+      const resources = workerResources.get(worker);
+      cleanupWorkerResources(resources);
+      workerResources.delete(worker);
       worker.terminate().catch(() => undefined).finally(() => workerQueue.release());
       resolve({
         ...response,
@@ -167,9 +171,6 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
 
     const graceTimer = setTimeout(() => {
       if (!messageReceived && !settled) {
-        const resources = workerResources.get(worker);
-        cleanupWorkerResources(resources);
-        workerResources.delete(worker);
         finish({ ok: false, error: 'Worker did not respond within the grace period.' });
       }
     }, timeoutMs + 200);
