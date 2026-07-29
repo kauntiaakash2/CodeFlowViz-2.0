@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
 import { inspect } from 'node:util';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -207,10 +207,14 @@ async function runJava(code, timeoutMs) {
   } finally {
     for (const pid of activePids) {
       try {
-        process.kill(pid, 'SIGTERM');
-        setTimeout(() => {
-          try { process.kill(pid, 'SIGKILL'); } catch {}
-        }, 2000);
+        if (process.platform === 'win32') {
+          execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+        } else {
+          process.kill(-pid, 'SIGTERM');
+          setTimeout(() => {
+            try { process.kill(-pid, 'SIGKILL'); } catch {}
+          }, 2000);
+        }
       } catch {}
     }
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});

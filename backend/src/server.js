@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import rateLimit from 'express-rate-limit';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
 const DEFAULT_TIMEOUT_MS = 1_000;
@@ -26,7 +26,7 @@ export function treeKill(pid) {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return;
   try {
     if (process.platform === 'win32') {
-      execSync(`taskkill /F /T /PID ${pid}`, { stdio: 'ignore' });
+      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
     } else {
       process.kill(-pid, 'SIGTERM');
       setTimeout(() => {

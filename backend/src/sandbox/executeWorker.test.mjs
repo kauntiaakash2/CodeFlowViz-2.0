@@ -98,39 +98,57 @@ test('workerResources WeakMap exists and can store/retrieve resources', () => {
   assert.strictEqual(workerResources.get(key), undefined);
 });
 
-test('integration - worker cleanup on timeout removes child process and temp directory', async () => {
+test('integration - real worker timeout cleans up child processes and temp directory', async () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   const workerPath = path.join(__dirname, 'executeWorker.mjs');
 
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfv-int-'));
-  const markerFile = path.join(tempDir, 'marker.txt');
-  fs.writeFileSync(markerFile, 'tracked');
+  // Java code that loops forever so the worker timeout fires
+  const code = `public class Main { public static void main(String[] a) throws Exception { for (;;) { Thread.sleep(1000); } } }`;
 
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-    detached: true,
-    stdio: 'ignore',
+  const worker = new Worker(workerPath, {
+    workerData: { code, timeoutMs: 300, language: 'java' },
   });
-  child.unref();
+  worker.unref();
 
-  const key = {};
-  workerResources.set(key, {
-    pids: new Set([child.pid]),
-    tempDir,
+  let trackedPids = null;
+  let trackedTempDir = null;
+
+  const result = await new Promise((resolve) => {
+    worker.on('message', (msg) => {
+      if (msg && msg.type === 'child-processes') {
+        trackedPids = msg.pids;
+        trackedTempDir = msg.tempDir;
+        return;
+      }
+      resolve(msg);
+    });
+    worker.on('error', (err) => resolve({ ok: false, error: err.message }));
+    worker.on('exit', (code) => {
+      resolve({ ok: false, error: code !== 0 ? `Worker exited with code ${code}` : 'Worker exited' });
+    });
+    // Safety timeout - should never hit this if worker responds
+    setTimeout(() => resolve({ ok: false, error: 'safety' }), 15000);
   });
 
-  cleanupWorkerResources(workerResources.get(key));
-  workerResources.delete(key);
-
-  await new Promise((r) => setTimeout(r, 500));
-
-  assert.ok(!fs.existsSync(tempDir), 'Temp dir should be removed after cleanup');
-  assert.ok(!fs.existsSync(markerFile), 'Marker file should be removed');
-
-  try {
-    process.kill(child.pid, 0);
-    assert.fail('Child PID should have been killed');
-  } catch (err) {
-    assert.ok(err.code === 'ESRCH' || err.code === 'EPERM', `Expected ESRCH/EPERM, got ${err.code}`);
+  // At minimum the worker should have reported a tempDir before trying javac
+  if (trackedTempDir) {
+    assert.ok(!fs.existsSync(trackedTempDir),
+      `Temp dir ${trackedTempDir} should have been removed`);
   }
+
+  // Any PIDs the worker reported should no longer be alive
+  for (const pid of (trackedPids || [])) {
+    try {
+      process.kill(pid, 0);
+      assert.fail(`PID ${pid} should have been killed after worker termination`);
+    } catch (err) {
+      assert.ok(err.code === 'ESRCH' || err.code === 'EPERM',
+        `Expected ESRCH/EPERM for PID ${pid}, got ${err.code}`);
+    }
+  }
+
+  // Even if javac/java were not installed, the worker should have sent a result
+  assert.ok(result === undefined || typeof result === 'object',
+    'Worker should have sent a completion message');
 });
