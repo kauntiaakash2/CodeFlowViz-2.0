@@ -378,6 +378,7 @@ const x = import('node:fs');
 `;
     assert.throws(() => instrumentCode(code), {
       name: 'SyntaxError',
+      message: /Dynamic import\(\) is not supported in script mode/i,
     });
   });
 
