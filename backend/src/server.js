@@ -22,6 +22,8 @@ const workerPath = path.join(__dirname, 'sandbox/executeWorker.mjs');
 
 const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
+export { runInSandbox };
+
 export function treeKill(pid) {
   if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return;
   try {
@@ -38,8 +40,14 @@ export function treeKill(pid) {
   }
 }
 
+export let lastCleanedResources = null;
+
 export function cleanupWorkerResources(resources) {
   if (!resources) return;
+  lastCleanedResources = {
+    pids: new Set(resources.pids),
+    tempDir: resources.tempDir,
+  };
   for (const pid of resources.pids) {
     treeKill(pid);
   }

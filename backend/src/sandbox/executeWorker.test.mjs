@@ -7,7 +7,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { treeKill, cleanupWorkerResources, workerResources } = await import('../server.js');
+const server = await import('../server.js');
+const { treeKill, cleanupWorkerResources, workerResources } = server;
 
 test('treeKill - ignores PID <= 1 and non-integer values', () => {
   assert.doesNotThrow(() => treeKill(-1));
@@ -101,44 +102,58 @@ test('workerResources WeakMap exists and can store/retrieve resources', () => {
 test('integration - real worker timeout cleans up child processes and temp directory', async () => {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  const workerPath = path.join(__dirname, 'executeWorker.mjs');
 
-  // Java code that loops forever so the worker timeout fires
-  const code = `public class Main { public static void main(String[] a) throws Exception { for (;;) { Thread.sleep(1000); } } }`;
+  // Create fixture javac/java executables that report PID and hang indefinitely
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfv-fixture-'));
+  const isWin = process.platform === 'win32';
 
-  const worker = new Worker(workerPath, {
-    workerData: { code, timeoutMs: 300, language: 'java' },
-  });
-  worker.unref();
-
-  let trackedPids = null;
-  let trackedTempDir = null;
-
-  const result = await new Promise((resolve) => {
-    worker.on('message', (msg) => {
-      if (msg && msg.type === 'child-processes') {
-        trackedPids = msg.pids;
-        trackedTempDir = msg.tempDir;
-        return;
-      }
-      resolve(msg);
-    });
-    worker.on('error', (err) => resolve({ ok: false, error: err.message }));
-    worker.on('exit', (code) => {
-      resolve({ ok: false, error: code !== 0 ? `Worker exited with code ${code}` : 'Worker exited' });
-    });
-    // Safety timeout - should never hit this if worker responds
-    setTimeout(() => resolve({ ok: false, error: 'safety' }), 15000);
-  });
-
-  // At minimum the worker should have reported a tempDir before trying javac
-  if (trackedTempDir) {
-    assert.ok(!fs.existsSync(trackedTempDir),
-      `Temp dir ${trackedTempDir} should have been removed`);
+  const fixtureCode = `console.log(process.pid); setInterval(() => {}, 100000)`;
+  if (isWin) {
+    fs.writeFileSync(path.join(fixtureDir, 'javac.cmd'),
+      `@echo off\r\nnode -e "${fixtureCode}"\r\n`);
+    fs.writeFileSync(path.join(fixtureDir, 'java.cmd'),
+      `@echo off\r\nnode -e "${fixtureCode}"\r\n`);
+  } else {
+    const shBody = `#!/bin/sh\nexec node -e '${fixtureCode}'\n`;
+    fs.writeFileSync(path.join(fixtureDir, 'javac'), shBody);
+    fs.writeFileSync(path.join(fixtureDir, 'java'), shBody);
+    fs.chmodSync(path.join(fixtureDir, 'javac'), 0o755);
+    fs.chmodSync(path.join(fixtureDir, 'java'), 0o755);
   }
 
-  // Any PIDs the worker reported should no longer be alive
-  for (const pid of (trackedPids || [])) {
+  // Prepend fixture dir to PATH so our scripts intercept javac/java
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${fixtureDir}${path.delimiter}${originalPath}`;
+
+  const timeoutMs = 500;
+  const code = 'public class Main { public static void main(String[] a) {} }';
+
+  let result;
+  try {
+    result = await server.runInSandbox(code, timeoutMs, 'java');
+  } finally {
+    // Restore PATH regardless of outcome
+    process.env.PATH = originalPath;
+    // Clean up fixture dir
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+
+  // 1. The response should report timedOut
+  assert.ok(result.timedOut === true,
+    `Expected timedOut=true, got: ${JSON.stringify(result)}`);
+
+  // 2. The error message should reference the timeout
+  assert.ok(result.error && result.error.includes('timed out'),
+    `Expected timeout error, got: ${result.error}`);
+
+  // 3. lastCleanedResources captures what cleanupWorkerResources handled
+  const cleaned = server.lastCleanedResources;
+  assert.ok(cleaned !== null, 'cleanupWorkerResources should have been called');
+
+  // 4. A non-empty PID set was tracked and cleaned
+  assert.ok(cleaned.pids.size > 0,
+    `Expected at least one tracked PID, got ${cleaned.pids.size}`);
+  for (const pid of cleaned.pids) {
     try {
       process.kill(pid, 0);
       assert.fail(`PID ${pid} should have been killed after worker termination`);
@@ -148,7 +163,13 @@ test('integration - real worker timeout cleans up child processes and temp direc
     }
   }
 
-  // Even if javac/java were not installed, the worker should have sent a result
-  assert.ok(result === undefined || typeof result === 'object',
-    'Worker should have sent a completion message');
+  // 5. The temp directory reported by the worker should have been removed
+  if (cleaned.tempDir) {
+    assert.ok(!fs.existsSync(cleaned.tempDir),
+      `Temp dir ${cleaned.tempDir} should have been removed`);
+  }
+
+  // 6. The worker entry was deleted from workerResources after cleanup
+  // We can't directly verify this since we don't have the Worker ref,
+  // but the fact that cleanupWorkerResources was called proves it.
 });

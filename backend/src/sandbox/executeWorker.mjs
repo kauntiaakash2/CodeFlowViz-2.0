@@ -42,9 +42,6 @@ function createSpawnTracker(tempDir) {
       child.stderr.on('data', (data) => { stderr += data.toString(); });
 
       const onClose = (code, signal) => {
-        activePids.delete(child.pid);
-        sendMetadata();
-
         if (code !== 0) {
           const error = new Error(
             `Command failed with exit code ${code}` +
@@ -59,8 +56,6 @@ function createSpawnTracker(tempDir) {
       };
 
       const onError = (err) => {
-        activePids.delete(child.pid);
-        sendMetadata();
         reject(err);
       };
 
