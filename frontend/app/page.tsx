@@ -15,7 +15,7 @@ export default function HomePage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <ThemeToggle />
-            <span style={{ fontSize: "0.9rem", color: "#98b6ef" }}>Sandbox Ready</span>
+            <span style={{ fontSize: "0.9rem", color: "#98b6ef" }}>Execution Service Ready</span>
           </div>
         </header>
 
