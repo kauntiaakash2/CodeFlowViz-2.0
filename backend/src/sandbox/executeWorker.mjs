@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
 import { inspect } from 'node:util';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -9,6 +9,19 @@ import crypto from 'node:crypto';
 
 import { instrumentCode as instrumentJS } from '../tracing/instrument.mjs';
 import { instrumentCode as instrumentJava } from '../tracing/javaInstrumenter.mjs';
+import { treeKill } from './processTreeKill.mjs';
+
+function resolveToolCommand(name) {
+  const override = process.env[`CFV_${name.toUpperCase()}_CMD`];
+  if (!override) return { file: name, args: [] };
+  try {
+    const parsed = JSON.parse(override);
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string') {
+      return { file: parsed[0], args: parsed.slice(1) };
+    }
+  } catch {}
+  return { file: name, args: [] };
+}
 
 function createSpawnTracker(tempDir) {
   const activePids = new Set();
@@ -32,8 +45,10 @@ function createSpawnTracker(tempDir) {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      activePids.add(child.pid);
-      sendMetadata();
+      if (child.pid !== undefined) {
+        activePids.add(child.pid);
+        sendMetadata();
+      }
 
       let stdout = '';
       let stderr = '';
@@ -144,11 +159,13 @@ async function runJava(code, timeoutMs) {
   const tempDir = path.join(os.tmpdir(), `codeflowviz-${runId}`);
   const { spawnTracked, activePids, sendMetadata } = createSpawnTracker(tempDir);
 
-  // Report initial tempDir to parent before any child processes start
-  sendMetadata();
-  
+  const javac = resolveToolCommand('javac');
+  const java = resolveToolCommand('java');
+
   try {
     await fs.mkdir(tempDir, { recursive: true });
+
+    sendMetadata();
 
     // bridge class to catch our injected trace hooks
     const traceClassPath = path.join(tempDir, '_Trace.java');
@@ -165,8 +182,8 @@ async function runJava(code, timeoutMs) {
     const mainClassPath = path.join(tempDir, 'Main.java');
     await fs.writeFile(mainClassPath, instrumentedCode);
 
-    await spawnTracked('javac', ['Main.java', '_Trace.java'], { cwd: tempDir, timeout: 5000 });
-    const { stdout, stderr } = await spawnTracked('java', ['Main'], { cwd: tempDir, timeout: timeoutMs });
+    await spawnTracked(javac.file, [...javac.args, 'Main.java', '_Trace.java'], { cwd: tempDir });
+    const { stdout, stderr } = await spawnTracked(java.file, [...java.args, 'Main'], { cwd: tempDir });
 
     const outputLines = stdout.split('\n');
     let stepCount = 1;
@@ -201,16 +218,7 @@ async function runJava(code, timeoutMs) {
     return { ok: false, error: error.message || 'Java execution failed', logs, timeline, instrumentation: { hookCount } };
   } finally {
     for (const pid of activePids) {
-      try {
-        if (process.platform === 'win32') {
-          execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
-        } else {
-          process.kill(-pid, 'SIGTERM');
-          setTimeout(() => {
-            try { process.kill(-pid, 'SIGKILL'); } catch {}
-          }, 2000);
-        }
-      } catch {}
+      await treeKill(pid);
     }
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }

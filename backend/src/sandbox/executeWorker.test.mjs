@@ -1,88 +1,81 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { Worker } from 'node:worker_threads';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const server = await import('../server.js');
 const { treeKill, cleanupWorkerResources, workerResources } = server;
 
-test('treeKill - ignores PID <= 1 and non-integer values', () => {
-  assert.doesNotThrow(() => treeKill(-1));
-  assert.doesNotThrow(() => treeKill(0));
-  assert.doesNotThrow(() => treeKill(1));
-  assert.doesNotThrow(() => treeKill(1.5));
-  assert.doesNotThrow(() => treeKill('abc'));
-});
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-test('treeKill - kills a running child process', async () => {
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+function spawnLongRunningChild() {
+  const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], {
     detached: true,
     stdio: 'ignore',
   });
   child.unref();
+  return child;
+}
 
-  assert.strictEqual(child.exitCode, null, 'Child should be running');
-
-  treeKill(child.pid);
-
-  await new Promise((r) => setTimeout(r, 500));
-
+function assertProcessGone(pid) {
   try {
-    process.kill(child.pid, 0);
-    assert.fail('Child process should have been killed');
+    process.kill(pid, 0);
+    assert.fail(`PID ${pid} should have been killed`);
   } catch (err) {
-    assert.ok(err.code === 'ESRCH' || err.code === 'EPERM', `Expected ESRCH/EPERM, got ${err.code}`);
+    assert.ok(
+      err.code === 'ESRCH' || err.code === 'EPERM',
+      `Expected ESRCH/EPERM for PID ${pid}, got ${err.code}`
+    );
+  }
+}
+
+test('treeKill - ignores PID <= 1 and non-integer values', async () => {
+  for (const pid of [-1, 0, 1, 1.5, 'abc', undefined, null]) {
+    await assert.doesNotReject(() => treeKill(pid));
   }
 });
 
-test('cleanupWorkerResources - null/undefined resources does not throw', () => {
-  assert.doesNotThrow(() => cleanupWorkerResources(null));
-  assert.doesNotThrow(() => cleanupWorkerResources(undefined));
+test('treeKill - kills a running child process', async () => {
+  const child = spawnLongRunningChild();
+  assert.strictEqual(child.exitCode, null, 'Child should be running');
+
+  await treeKill(child.pid);
+
+  assertProcessGone(child.pid);
 });
 
-test('cleanupWorkerResources - cleans up temp directory', () => {
+test('cleanupWorkerResources - null/undefined resources does not throw', async () => {
+  await assert.doesNotReject(() => cleanupWorkerResources(null));
+  await assert.doesNotReject(() => cleanupWorkerResources(undefined));
+});
+
+test('cleanupWorkerResources - cleans up temp directory', async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfv-test-'));
   fs.writeFileSync(path.join(tempDir, 'test.txt'), 'hello');
 
-  const resources = { pids: new Set(), tempDir };
-  cleanupWorkerResources(resources);
+  await cleanupWorkerResources({ pids: new Set(), tempDir });
 
   assert.ok(!fs.existsSync(tempDir), 'Temp dir should be removed');
 });
 
 test('cleanupWorkerResources - kills tracked PIDs', async () => {
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
+  const child = spawnLongRunningChild();
 
-  const resources = { pids: new Set([child.pid]), tempDir: null };
-  cleanupWorkerResources(resources);
+  await cleanupWorkerResources({ pids: new Set([child.pid]), tempDir: null });
 
-  await new Promise((r) => setTimeout(r, 500));
-
-  try {
-    process.kill(child.pid, 0);
-    assert.fail('Child PID should have been killed by cleanupWorkerResources');
-  } catch (err) {
-    assert.ok(err.code === 'ESRCH' || err.code === 'EPERM', `Expected ESRCH/EPERM, got ${err.code}`);
-  }
+  assertProcessGone(child.pid);
 });
 
 test('cleanupWorkerResources - clears PIDs set after cleanup', async () => {
-  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-    detached: true,
-    stdio: 'ignore',
-  });
-  child.unref();
+  const child = spawnLongRunningChild();
 
   const resources = { pids: new Set([child.pid]), tempDir: null };
-  cleanupWorkerResources(resources);
+  await cleanupWorkerResources(resources);
+
   assert.strictEqual(resources.pids.size, 0, 'PIDs set should be empty after cleanup');
 });
 
@@ -99,77 +92,58 @@ test('workerResources WeakMap exists and can store/retrieve resources', () => {
   assert.strictEqual(workerResources.get(key), undefined);
 });
 
-test('integration - real worker timeout cleans up child processes and temp directory', async () => {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-
-  // Create fixture javac/java executables that report PID and hang indefinitely
+test('integration - parent timeout confirms detached process group and temp dir are gone', async () => {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfv-fixture-'));
-  const isWin = process.platform === 'win32';
+  const javacPidFile = path.join(fixtureDir, 'javac.pid');
+  const javaPidFile = path.join(fixtureDir, 'java.pid');
 
-  const fixtureCode = `console.log(process.pid); setInterval(() => {}, 100000)`;
-  if (isWin) {
-    fs.writeFileSync(path.join(fixtureDir, 'javac.cmd'),
-      `@echo off\r\nnode -e "${fixtureCode}"\r\n`);
-    fs.writeFileSync(path.join(fixtureDir, 'java.cmd'),
-      `@echo off\r\nnode -e "${fixtureCode}"\r\n`);
-  } else {
-    const shBody = `#!/bin/sh\nexec node -e '${fixtureCode}'\n`;
-    fs.writeFileSync(path.join(fixtureDir, 'javac'), shBody);
-    fs.writeFileSync(path.join(fixtureDir, 'java'), shBody);
-    fs.chmodSync(path.join(fixtureDir, 'javac'), 0o755);
-    fs.chmodSync(path.join(fixtureDir, 'java'), 0o755);
+  function fixtureScript(pidFile) {
+    return [
+      "import fs from 'node:fs';",
+      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      'console.log(process.pid);',
+      'setInterval(() => {}, 100000);',
+      '',
+    ].join('\n');
   }
 
-  // Prepend fixture dir to PATH so our scripts intercept javac/java
-  const originalPath = process.env.PATH;
-  process.env.PATH = `${fixtureDir}${path.delimiter}${originalPath}`;
+  const javacFixture = path.join(fixtureDir, 'javac.mjs');
+  const javaFixture = path.join(fixtureDir, 'java.mjs');
+  fs.writeFileSync(javacFixture, fixtureScript(javacPidFile));
+  fs.writeFileSync(javaFixture, fixtureScript(javaPidFile));
 
-  const timeoutMs = 500;
-  const code = 'public class Main { public static void main(String[] a) {} }';
+  const originalJavacCmd = process.env.CFV_JAVAC_CMD;
+  const originalJavaCmd = process.env.CFV_JAVA_CMD;
+  process.env.CFV_JAVAC_CMD = JSON.stringify([process.execPath, javacFixture]);
+  process.env.CFV_JAVA_CMD = JSON.stringify([process.execPath, javaFixture]);
+
+  const tmpRoot = fs.realpathSync(os.tmpdir());
+  const before = new Set(fs.readdirSync(tmpRoot).filter((n) => n.startsWith('codeflowviz-')));
 
   let result;
+  let javacPid;
+  let javaSpawned;
   try {
-    result = await server.runInSandbox(code, timeoutMs, 'java');
+    result = await server.runInSandbox('public class Main { public static void main(String[] a) {} }', 500, 'java');
+    javacPid = Number(fs.readFileSync(javacPidFile, 'utf8'));
+    javaSpawned = fs.existsSync(javaPidFile);
   } finally {
-    // Restore PATH regardless of outcome
-    process.env.PATH = originalPath;
-    // Clean up fixture dir
+    if (originalJavacCmd === undefined) delete process.env.CFV_JAVAC_CMD;
+    else process.env.CFV_JAVAC_CMD = originalJavacCmd;
+    if (originalJavaCmd === undefined) delete process.env.CFV_JAVA_CMD;
+    else process.env.CFV_JAVA_CMD = originalJavaCmd;
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 
-  // 1. The response should report timedOut
-  assert.ok(result.timedOut === true,
-    `Expected timedOut=true, got: ${JSON.stringify(result)}`);
+  assert.strictEqual(result.timedOut, true, `Expected timedOut=true, got: ${JSON.stringify(result)}`);
+  assert.ok(result.error && result.error.includes('timed out'), `Expected timeout error, got: ${result.error}`);
 
-  // 2. The error message should reference the timeout
-  assert.ok(result.error && result.error.includes('timed out'),
-    `Expected timeout error, got: ${result.error}`);
+  assert.ok(Number.isInteger(javacPid) && javacPid > 1, 'Fixture javac should have reported its PID');
+  assert.strictEqual(javaSpawned, false, 'java fixture should not run while javac hangs');
 
-  // 3. lastCleanedResources captures what cleanupWorkerResources handled
-  const cleaned = server.lastCleanedResources;
-  assert.ok(cleaned !== null, 'cleanupWorkerResources should have been called');
+  assertProcessGone(javacPid);
 
-  // 4. A non-empty PID set was tracked and cleaned
-  assert.ok(cleaned.pids.size > 0,
-    `Expected at least one tracked PID, got ${cleaned.pids.size}`);
-  for (const pid of cleaned.pids) {
-    try {
-      process.kill(pid, 0);
-      assert.fail(`PID ${pid} should have been killed after worker termination`);
-    } catch (err) {
-      assert.ok(err.code === 'ESRCH' || err.code === 'EPERM',
-        `Expected ESRCH/EPERM for PID ${pid}, got ${err.code}`);
-    }
-  }
-
-  // 5. The temp directory reported by the worker should have been removed
-  if (cleaned.tempDir) {
-    assert.ok(!fs.existsSync(cleaned.tempDir),
-      `Temp dir ${cleaned.tempDir} should have been removed`);
-  }
-
-  // 6. The worker entry was deleted from workerResources after cleanup
-  // We can't directly verify this since we don't have the Worker ref,
-  // but the fact that cleanupWorkerResources was called proves it.
+  const after = fs.readdirSync(tmpRoot).filter((n) => n.startsWith('codeflowviz-'));
+  const leftovers = after.filter((n) => !before.has(n));
+  assert.deepStrictEqual(leftovers, [], `Temp dirs should be removed after worker termination`);
 });

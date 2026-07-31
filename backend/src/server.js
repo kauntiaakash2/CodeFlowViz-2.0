@@ -2,11 +2,13 @@ import { estimateComplexity } from './tracing/complexityAnalyzer.mjs';
 import { RequestQueue } from './requestQueue.mjs';
 import express from 'express';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import rateLimit from 'express-rate-limit';
-import { execFileSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { treeKill } from './sandbox/processTreeKill.mjs';
+
+export { treeKill };
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
@@ -24,39 +26,28 @@ const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
 export { runInSandbox };
 
-export function treeKill(pid) {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 1) return;
-  try {
-    if (process.platform === 'win32') {
-      execFileSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
-    } else {
-      process.kill(-pid, 'SIGTERM');
-      setTimeout(() => {
-        try { process.kill(-pid, 'SIGKILL'); } catch {}
-      }, 2000);
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function removeDir(dir) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+      return;
+    } catch {
+      await delay(100);
     }
-  } catch {
-    // process already exited
   }
 }
 
-export let lastCleanedResources = null;
-
-export function cleanupWorkerResources(resources) {
+export async function cleanupWorkerResources(resources) {
   if (!resources) return;
-  lastCleanedResources = {
-    pids: new Set(resources.pids),
-    tempDir: resources.tempDir,
-  };
   for (const pid of resources.pids) {
-    treeKill(pid);
+    await treeKill(pid);
   }
   if (resources.tempDir) {
-    try {
-      rmSync(resources.tempDir, { recursive: true, force: true });
-    } catch {
-      // already cleaned up or doesn't exist
-    }
+    await removeDir(resources.tempDir);
   }
   resources.pids.clear();
 }
@@ -138,15 +129,19 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
       finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
     }, timeoutMs + 100);
 
-    function finish(response, timedOut = false) {
+    async function finish(response, timedOut = false) {
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
       clearTimeout(graceTimer);
       const resources = workerResources.get(worker);
-      cleanupWorkerResources(resources);
       workerResources.delete(worker);
-      worker.terminate().catch(() => undefined).finally(() => workerQueue.release());
+      await cleanupWorkerResources(resources);
+      await worker.terminate().catch(() => undefined);
+      if (resources?.tempDir) {
+        await removeDir(resources.tempDir);
+      }
+      workerQueue.release();
       resolve({
         ...response,
         logs: response.logs ?? [],
@@ -157,11 +152,16 @@ function executeInWorker(code, timeoutMs, language, startedAt) {
     }
 
     worker.on('message', (message) => {
+      if (settled) return;
       if (message && message.type === 'child-processes') {
-        workerResources.set(worker, {
-          pids: new Set(message.pids),
-          tempDir: message.tempDir,
-        });
+        const existing = workerResources.get(worker) ?? { pids: new Set(), tempDir: undefined };
+        for (const pid of message.pids) {
+          existing.pids.add(pid);
+        }
+        if (message.tempDir !== undefined) {
+          existing.tempDir = message.tempDir;
+        }
+        workerResources.set(worker, existing);
         return;
       }
 
@@ -238,7 +238,7 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
 });
 
-const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(path.resolve(process.argv[1])));
 if (isMainModule) {
   app.listen(port, () => {
     console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
