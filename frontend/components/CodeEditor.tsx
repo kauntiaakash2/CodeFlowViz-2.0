@@ -6,6 +6,123 @@ import { usePlayback } from '@/context/PlaybackContext';
 
 type DockPosition = 'bottom' | 'right';
 
+function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } {
+  if (!rawValue) return { parsed: rawValue, isJson: false };
+  try {
+    const firstParse = JSON.parse(rawValue);
+    if (firstParse !== null && typeof firstParse === 'object') {
+      return { parsed: firstParse, isJson: true };
+    }
+    if (typeof firstParse === 'string') {
+      try {
+        const secondParse = JSON.parse(firstParse);
+        if (secondParse !== null && typeof secondParse === 'object') {
+          return { parsed: secondParse, isJson: true };
+        }
+      } catch {
+        // Not a double-encoded JSON string
+      }
+    }
+    return { parsed: firstParse, isJson: false };
+  } catch {
+    return { parsed: rawValue, isJson: false };
+  }
+}
+
+function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
+  const [isExpanded, setIsExpanded] = useState(depth < 2);
+
+  if (value !== null && typeof value === 'object') {
+    const isArray = Array.isArray(value);
+    const entries = isArray
+      ? value.map((item, idx) => [String(idx), item] as [string, unknown])
+      : Object.entries(value);
+    const count = entries.length;
+    const typeLabel = isArray ? `Array[${count}]` : `Object {${count}}`;
+
+    return (
+      <div className="jsonTreeNode" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }}
+          style={{
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            userSelect: 'none',
+          }}
+        >
+          <span style={{ fontSize: '0.65rem', width: '10px', display: 'inline-block', opacity: 0.8 }}>
+            {isExpanded ? '▼' : '▶'}
+          </span>
+          {keyName !== undefined && (
+            <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+              {keyName}:{' '}
+            </span>
+          )}
+          <span style={{ opacity: 0.75, fontStyle: 'italic', fontSize: '0.78rem' }}>
+            {typeLabel}
+          </span>
+        </div>
+        {isExpanded && (
+          <div style={{ paddingLeft: '12px', borderLeft: '1px dashed var(--border-color, #1e1e35)', marginLeft: '4px', marginTop: '2px' }}>
+            {entries.length === 0 ? (
+              <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>empty</span>
+            ) : (
+              entries.map(([childKey, childVal]) => (
+                <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  let renderedValue: React.ReactNode;
+  let valColor = 'inherit';
+
+  if (typeof value === 'string') {
+    renderedValue = `"${value}"`;
+    valColor = '#95d8a6';
+  } else if (typeof value === 'number') {
+    renderedValue = String(value);
+    valColor = '#f4ca64';
+  } else if (typeof value === 'boolean') {
+    renderedValue = String(value);
+    valColor = '#88b4ff';
+  } else if (value === null || value === undefined) {
+    renderedValue = String(value);
+    valColor = '#6a7d9b';
+  } else {
+    renderedValue = String(value);
+  }
+
+  return (
+    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+      {keyName !== undefined && (
+        <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+          {keyName}:{' '}
+        </span>
+      )}
+      <span style={{ color: valColor }}>{renderedValue}</span>
+    </div>
+  );
+}
+
+function JsonTreeView({ rawValue, valueType }: { rawValue: string; valueType: string }) {
+  const { parsed, isJson } = useMemo(() => parseJsonValue(rawValue), [rawValue]);
+
+  if (isJson) {
+    return <JsonTreeNode value={parsed} depth={0} />;
+  }
+
+  return <code>{rawValue}</code>;
+}
+
 export default function CodeEditor() {
   const {
     code,
@@ -406,7 +523,7 @@ export default function CodeEditor() {
                             <tr key={`${selectedSnapshot?.step}-${name}`}>
                               <th scope="row">{name}</th>
                               <td>{value.type}</td>
-                              <td><code>{value.value}</code></td>
+                              <td><JsonTreeView rawValue={value.value} valueType={value.type} /></td>
                             </tr>
                           ))
                         ) : (
