@@ -29,30 +29,49 @@ function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } 
   }
 }
 
-function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
-  const [isExpanded, setIsExpanded] = useState(depth < 2);
+const INITIAL_VISIBLE_COUNT = 50;
 
-  if (value !== null && typeof value === 'object') {
-    const isArray = Array.isArray(value);
-    const entries = isArray
-      ? value.map((item, idx) => [String(idx), item] as [string, unknown])
-      : Object.entries(value);
-    const count = entries.length;
+function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
+  const isObject = value !== null && typeof value === 'object';
+  const isArray = Array.isArray(value);
+  const entries = useMemo(() => {
+    if (!isObject) return [];
+    return isArray
+      ? (value as unknown[]).map((item, idx) => [String(idx), item] as [string, unknown])
+      : Object.entries(value as Record<string, unknown>);
+  }, [isObject, isArray, value]);
+
+  const count = entries.length;
+  const [isExpanded, setIsExpanded] = useState(() => depth < 2 && (!isArray || count <= INITIAL_VISIBLE_COUNT));
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
+
+  if (isObject) {
     const typeLabel = isArray ? `Array[${count}]` : `Object {${count}}`;
+    const visibleEntries = entries.slice(0, visibleCount);
+    const hasMore = count > visibleCount;
 
     return (
       <div className="jsonTreeNode" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
-        <div
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={`${keyName ? `${keyName}: ` : ''}${typeLabel}`}
           onClick={(e) => {
             e.stopPropagation();
             setIsExpanded(!isExpanded);
           }}
           style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            color: 'inherit',
             cursor: 'pointer',
             display: 'inline-flex',
             alignItems: 'center',
             gap: '4px',
             userSelect: 'none',
+            textAlign: 'left',
           }}
         >
           <span style={{ fontSize: '0.65rem', width: '10px', display: 'inline-block', opacity: 0.8 }}>
@@ -66,15 +85,38 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
           <span style={{ opacity: 0.75, fontStyle: 'italic', fontSize: '0.78rem' }}>
             {typeLabel}
           </span>
-        </div>
+        </button>
         {isExpanded && (
           <div style={{ paddingLeft: '12px', borderLeft: '1px dashed var(--border-color, #1e1e35)', marginLeft: '4px', marginTop: '2px' }}>
-            {entries.length === 0 ? (
+            {count === 0 ? (
               <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>empty</span>
             ) : (
-              entries.map(([childKey, childVal]) => (
-                <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
-              ))
+              <>
+                {visibleEntries.map(([childKey, childVal]) => (
+                  <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
+                ))}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setVisibleCount((prev) => prev + INITIAL_VISIBLE_COUNT);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--accent-cyan, #06b6d4)',
+                      cursor: 'pointer',
+                      fontSize: '0.78rem',
+                      fontStyle: 'italic',
+                      padding: '2px 0',
+                      marginTop: '2px',
+                    }}
+                  >
+                    … show {count - visibleCount} more items
+                  </button>
+                )}
+              </>
             )}
           </div>
         )}
@@ -86,7 +128,7 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
   let valColor = 'inherit';
 
   if (typeof value === 'string') {
-    renderedValue = `"${value}"`;
+    renderedValue = JSON.stringify(value);
     valColor = '#95d8a6';
   } else if (typeof value === 'number') {
     renderedValue = String(value);
