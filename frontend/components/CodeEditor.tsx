@@ -462,7 +462,7 @@ export default function CodeEditor() {
           height: '100%',
           maxHeight: 'calc(100vh - 120px)',
           minHeight: 0,
-          gridTemplateRows: `auto 1fr 6px ${bottomHeight}px`,
+          gridTemplateRows: `auto auto 1fr 6px ${bottomHeight}px`,
           position: 'relative',
           overflow: 'hidden',
         }}
@@ -544,8 +544,20 @@ export default function CodeEditor() {
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
+          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
+
+        <p
+          style={{
+            marginTop: "8px",
+            fontSize: "0.85rem",
+            opacity: 0.8,
+            lineHeight: 1.4,
+          }}
+        >
+          Submitted code executes on the backend. Do not treat the current execution
+          environment as safely isolated for untrusted or hostile code.
+        </p>
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <Editor

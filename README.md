@@ -24,7 +24,7 @@
 
 ## What it does
 
-Paste a JavaScript snippet, run it in an isolated worker, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
+Paste a JavaScript snippet, submit it to the backend execution service, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
 
 - Follow line-level execution snapshots.
 - Scrub backward and forward through a completed run.
@@ -152,7 +152,7 @@ The response includes the execution result, logs, timeline snapshots, duration, 
 - The complexity value is a heuristic based on detected loop nesting, not a formal Big-O proof.
 - Runs accept at most 20,000 characters and are time- and memory-limited.
 - Trace sessions are not yet persisted or shareable.
-- Submitted code executes on the backend. The current execution model should not be considered safely isolated for hostile or untrusted code.ou understand; worker isolation reduces risk but is not a guarantee for hostile code.
+- Submitted code executes on the backend. The current execution model should not be considered safely isolated for hostile or untrusted code.
 
 ## Deployment guidance
 
