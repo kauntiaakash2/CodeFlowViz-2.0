@@ -149,7 +149,7 @@ async function runJava(code, timeoutMs) {
 process.on('unhandledRejection', (reason) => {
   parentPort.postMessage({
     ok: false,
-    error: reason instanceof Error ? reason.message : 'Unhandled rejection in sandbox',
+    error: reason && reason.message ? reason.message : 'Unhandled rejection in sandbox',
     logs: [],
     timeline: [],
   });
@@ -167,7 +167,7 @@ run()
   .then(res => parentPort.postMessage(res))
   .catch(err => parentPort.postMessage({
     ok: false,
-    error: err instanceof Error ? err.message : 'Unknown sandbox error',
+    error: err && err.message ? err.message : 'Unknown sandbox error',
     logs: [],
     timeline: [],
   }));
