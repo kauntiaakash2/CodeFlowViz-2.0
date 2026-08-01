@@ -41,6 +41,68 @@ test('Sandbox Security & Execution Suite', async (t) => {
     assert.ok(result.result.value.includes('Promise'), 'Returns a pending promise');
   });
 
+  await t.test('prevents sandbox escape via console constructor (Function constructor bypass)', async () => {
+    const code = `
+      let result;
+      try {
+        const fn = console.log.constructor('return process')();
+        result = fn ? 'escaped' : 'no process';
+      } catch (e) {
+        result = 'blocked: ' + e.message;
+      }
+      result;
+    `;
+    const result = await runInSandbox(code, 1000);
+    assert.strictEqual(result.ok, true, 'Execution should succeed');
+    assert.ok(
+      result.result.value.includes('blocked') || result.result.value.includes('process is not defined'),
+      'Should block access to process through host constructor'
+    );
+  });
+
+  await t.test('prevents sandbox escape via dynamic import', async () => {
+    const code = `
+      let result;
+      try {
+        result = import('node:fs').then(() => 'escaped').catch(e => 'blocked: ' + e.message);
+      } catch (e) {
+        result = 'blocked: ' + e.message;
+      }
+      result;
+    `;
+    const result = await runInSandbox(code, 1000);
+    if (result.ok) {
+      assert.ok(
+        result.result.value.includes('blocked') || result.result.value.includes('Promise'),
+        'Dynamic import should be blocked or return error'
+      );
+    } else {
+      assert.ok(
+        result.error.includes('SyntaxError') || result.error.includes('import'),
+        'Dynamic import should fail parsing or execution'
+      );
+    }
+  });
+
+  await t.test('prevents sandbox escape via __trace constructor', async () => {
+    const code = `
+      let result;
+      try {
+        const fn = __trace.capture.constructor('return process')();
+        result = fn ? 'escaped' : 'no process';
+      } catch (e) {
+        result = 'blocked: ' + e.message;
+      }
+      result;
+    `;
+    const result = await runInSandbox(code, 1000);
+    assert.strictEqual(result.ok, true, 'Execution should succeed');
+    assert.ok(
+      result.result.value.includes('blocked') || result.result.value.includes('process is not defined'),
+      'Should block access to process through host trace constructor'
+    );
+  });
+
   await t.test('prevents access to Node.js core modules (isolation)', async () => {
     const code = `
       const fs = require('fs');

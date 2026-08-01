@@ -68,12 +68,34 @@ function runJavaScript(code, timeoutMs) {
   const sandbox = Object.create(null);
 
   Object.defineProperties(sandbox, {
-    console: { value: createConsole(logs), enumerable: true },
-    __trace: { value: createTrace(timeline), enumerable: false },
+    _rawConsole: { value: createConsole(logs), enumerable: false, configurable: true },
+    _rawTrace: { value: createTrace(timeline), enumerable: false, configurable: true },
     globalThis: { value: sandbox, enumerable: false },
   });
 
   const context = vm.createContext(sandbox, { name: 'codeflowviz-sandbox' });
+
+  // Wrap host-provided functions inside the sandbox context to shield host constructors
+  vm.runInContext(`
+    (function() {
+      const rawConsole = globalThis._rawConsole;
+      const rawTrace = globalThis._rawTrace;
+      delete globalThis._rawConsole;
+      delete globalThis._rawTrace;
+
+      globalThis.console = Object.freeze({
+        log: function(...args) { return rawConsole.log(...args); },
+        info: function(...args) { return rawConsole.info(...args); },
+        warn: function(...args) { return rawConsole.warn(...args); },
+        error: function(...args) { return rawConsole.error(...args); }
+      });
+
+      globalThis.__trace = Object.freeze({
+        capture: function(line, event, variables) { return rawTrace.capture(line, event, variables); }
+      });
+    })();
+  `, context);
+
   const script = new vm.Script(`'use strict';\n${instrumentedCode}`, { filename: 'user-code.js' });
   
   const result = script.runInContext(context, { timeout: timeoutMs, breakOnSigint: false });
