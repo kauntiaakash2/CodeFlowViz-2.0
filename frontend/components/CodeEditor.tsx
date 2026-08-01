@@ -301,12 +301,34 @@ export default function CodeEditor() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span>Playback Engine</span>
           {output ? (
-            <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>
-              {snapshots.length} snapshots · {output.instrumentation?.hookCount ?? 0} hooks · {output.durationMs}ms
-            </span>
-          ) : (
-            <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>Idle</span>
-          )}
+  <>
+    <span style={{ opacity: 0.7, fontSize: "0.78rem" }}>
+      {snapshots.length} snapshots ·
+      {output.instrumentation?.hookCount ?? 0} hooks ·
+      {output.durationMs}ms
+    </span>
+
+    {output.complexity && (
+      <div style={{ marginTop: "8px" }}>
+        <strong>Complexity</strong>
+
+        {output.complexity.available ? (
+          <>
+            <div>Big-O: {output.complexity.bigO}</div>
+
+            {output.complexity.explanation && (
+              <div>{output.complexity.explanation}</div>
+            )}
+          </>
+        ) : (
+          <div>{output.complexity.explanation}</div>
+        )}
+      </div>
+    )}
+  </>
+) : (
+  <span style={{ opacity: 0.7, fontSize: "0.78rem" }}>Idle</span>
+)}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
