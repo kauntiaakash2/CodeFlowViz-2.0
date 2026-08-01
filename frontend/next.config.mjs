@@ -4,10 +4,6 @@ const nextConfig = {
   experimental: {
     webpackBuildWorker: false,
   },
-  webpack: (config) => {
-    config.parallelism = 1;
-    return config;
-  },
 };
 
 export default nextConfig;

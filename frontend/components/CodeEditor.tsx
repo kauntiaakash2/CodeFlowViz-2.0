@@ -155,7 +155,7 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
   );
 }
 
-function JsonTreeView({ rawValue, valueType }: { rawValue: string; valueType: string }) {
+function JsonTreeView({ rawValue }: { rawValue: string }) {
   const { parsed, isJson } = useMemo(() => parseJsonValue(rawValue), [rawValue]);
 
   if (isJson) {
@@ -565,7 +565,7 @@ export default function CodeEditor() {
                             <tr key={`${selectedSnapshot?.step}-${name}`}>
                               <th scope="row">{name}</th>
                               <td>{value.type}</td>
-                              <td><JsonTreeView rawValue={value.value} valueType={value.type} /></td>
+                              <td><JsonTreeView rawValue={value.value} /></td>
                             </tr>
                           ))
                         ) : (
