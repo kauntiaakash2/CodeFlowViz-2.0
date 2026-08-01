@@ -7,7 +7,7 @@ import { formatExecutionOutput } from '@/lib/formatExecutionOutput';
 
 type DockPosition = 'bottom' | 'right';
 
-export default function CodeEditor() {
+export function CodeEditor() {
   const {
     code,
     setCode,
@@ -623,3 +623,4 @@ export default function CodeEditor() {
     </div>
   );
 }
+export default CodeEditor;
