@@ -30,25 +30,35 @@ export default function CodeEditor() {
     return 'void';
   });
   const [copyStatus, setCopyStatus] = useState('');
+  const clearStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+  return () => {
+    if (clearStatusTimeout.current) {
+      clearTimeout(clearStatusTimeout.current);
+    }
+  };
+}, []);
+
+
   const handleCopy = async () => {
   if (!output) return;
+
+  if (clearStatusTimeout.current) {
+    clearTimeout(clearStatusTimeout.current);
+  }
 
   try {
     const text = formatExecutionOutput(output, snapshots.length);
 
     await navigator.clipboard.writeText(text);
     setCopyStatus('Output copied');
-    setTimeout(() => {
-  setCopyStatus("");
-}, 2000);
-
   } catch {
-    alert('Unable to copy output');
-    setTimeout(() => {
-  setCopyStatus("");
-}, 2000);
-
+    setCopyStatus('Unable to copy output.');
   }
+
+  clearStatusTimeout.current = setTimeout(() => {
+    setCopyStatus("");
+  }, 2000);
 };
   const [bottomHeight, setBottomHeight] = useState(200);
   const [rightWidth, setRightWidth] = useState(380);
@@ -66,6 +76,7 @@ export default function CodeEditor() {
   const dragStartX = useRef(0);
   const dragStartHeight = useRef(0);
   const dragStartWidth = useRef(0);
+  
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
