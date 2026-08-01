@@ -24,7 +24,7 @@
 
 ## What it does
 
-Paste a JavaScript snippet, run it in an isolated worker, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
+Paste a JavaScript snippet, submit it to the backend execution service, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
 
 - Follow line-level execution snapshots.
 - Scrub backward and forward through a completed run.
@@ -56,7 +56,7 @@ CodeFlowViz complements browser and IDE debuggers; it is not intended to replace
 ```mermaid
 flowchart LR
     UI["Next.js cockpit<br/>Monaco + timeline"] -->|POST /api/execute| API["Express API"]
-    API --> WORKER["Isolated worker<br/>AST instrumentation"]
+    API --> WORKER["Backend execution service<br/>AST instrumentation"]
     WORKER -->|snapshots + logs| UI
 ```
 
@@ -67,7 +67,7 @@ flowchart LR
 | Tracing | Acorn-based JavaScript instrumentation |
 | Deployment | Vercel frontend, long-running Node.js backend |
 
-The frontend and execution service are separate workspaces. This keeps the UI easy to deploy while allowing traced code to run in a resource-limited worker instead of a short-lived frontend function.
+The frontend and execution service are separate workspaces. This keeps the UI easy to deploy while allowing traced code to run in a resource-limited backend execution service instead of a short-lived frontend function. This execution model should not be treated as a security boundary for untrusted code.
 
 ## Quick start
 
@@ -152,7 +152,11 @@ The response includes the execution result, logs, timeline snapshots, duration, 
 - The complexity value is a heuristic based on detected loop nesting, not a formal Big-O proof.
 - Runs accept at most 20,000 characters and are time- and memory-limited.
 - Trace sessions are not yet persisted or shareable.
-- Only run code you understand; worker isolation reduces risk but is not a guarantee for hostile code.
+- Submitted code executes on the backend. The current execution model should not be considered safely isolated for hostile or untrusted code.
+
+## Deployment guidance
+
+Maintainers should not expose public code execution until the isolation issues tracked in #107 and #110 are resolved. The current execution model should not be treated as a secure isolation boundary.
 
 ## Roadmap
 
