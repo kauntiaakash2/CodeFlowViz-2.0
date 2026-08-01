@@ -248,6 +248,26 @@ function instrumentBranch(source, branch, inserts) {
   visit(source, branch, inserts);
 }
 
+function rejectDynamicImport(node, source) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'ImportExpression') {
+    const line = node.loc?.start?.line ?? lineOf(source, node.start);
+    const err = new SyntaxError(`Dynamic import() is not supported in script mode (line ${line})`);
+    err.line = line;
+    throw err;
+  }
+  for (const key in node) {
+    if (key === 'parent') continue;
+    if (node[key] && typeof node[key] === 'object') {
+      if (Array.isArray(node[key])) {
+        for (const child of node[key]) rejectDynamicImport(child, source);
+      } else if (node[key].type) {
+        rejectDynamicImport(node[key], source);
+      }
+    }
+  }
+}
+
 export function instrumentCode(source) {
   const ast = Parser.parse(source, {
     ecmaVersion,
@@ -255,6 +275,8 @@ export function instrumentCode(source) {
     sourceType: 'script',
     allowReturnOutsideFunction: false,
   });
+
+  rejectDynamicImport(ast, source);
 
   const inserts = [];
   visit(source, ast, inserts);
