@@ -8,6 +8,165 @@ const executionApiUrl = process.env.NEXT_PUBLIC_EXECUTE_API_URL ?? 'http://local
 
 type DockPosition = 'bottom' | 'right';
 
+function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } {
+  if (!rawValue) return { parsed: rawValue, isJson: false };
+  try {
+    const firstParse = JSON.parse(rawValue);
+    if (firstParse !== null && typeof firstParse === 'object') {
+      return { parsed: firstParse, isJson: true };
+    }
+    if (typeof firstParse === 'string') {
+      try {
+        const secondParse = JSON.parse(firstParse);
+        if (secondParse !== null && typeof secondParse === 'object') {
+          return { parsed: secondParse, isJson: true };
+        }
+      } catch {
+        // Not a double-encoded JSON string
+      }
+    }
+    return { parsed: firstParse, isJson: false };
+  } catch {
+    return { parsed: rawValue, isJson: false };
+  }
+}
+
+const INITIAL_VISIBLE_COUNT = 50;
+
+function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
+  const isObject = value !== null && typeof value === 'object';
+  const isArray = Array.isArray(value);
+  const entries = useMemo(() => {
+    if (!isObject) return [];
+    return isArray
+      ? (value as unknown[]).map((item, idx) => [String(idx), item] as [string, unknown])
+      : Object.entries(value as Record<string, unknown>);
+  }, [isObject, isArray, value]);
+
+  const count = entries.length;
+  const [isExpanded, setIsExpanded] = useState(() => depth < 2 && (!isArray || count <= INITIAL_VISIBLE_COUNT));
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
+
+  if (isObject) {
+    const typeLabel = isArray ? `Array[${count}]` : `Object {${count}}`;
+    const visibleEntries = entries.slice(0, visibleCount);
+    const hasMore = count > visibleCount;
+
+    return (
+      <div className="jsonTreeNode" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={`${keyName ? `${keyName}: ` : ''}${typeLabel}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            color: 'inherit',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            userSelect: 'none',
+            textAlign: 'left',
+          }}
+        >
+          <span style={{ fontSize: '0.65rem', width: '10px', display: 'inline-block', opacity: 0.8 }}>
+            {isExpanded ? '▼' : '▶'}
+          </span>
+          {keyName !== undefined && (
+            <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+              {keyName}:{' '}
+            </span>
+          )}
+          <span style={{ opacity: 0.75, fontStyle: 'italic', fontSize: '0.78rem' }}>
+            {typeLabel}
+          </span>
+        </button>
+        {isExpanded && (
+          <div style={{ paddingLeft: '12px', borderLeft: '1px dashed var(--border-color, #1e1e35)', marginLeft: '4px', marginTop: '2px' }}>
+            {count === 0 ? (
+              <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>empty</span>
+            ) : (
+              <>
+                {visibleEntries.map(([childKey, childVal]) => (
+                  <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
+                ))}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setVisibleCount((prev) => prev + INITIAL_VISIBLE_COUNT);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--accent-cyan, #06b6d4)',
+                      cursor: 'pointer',
+                      fontSize: '0.78rem',
+                      fontStyle: 'italic',
+                      padding: '2px 0',
+                      marginTop: '2px',
+                    }}
+                  >
+                    … show {count - visibleCount} more items
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  let renderedValue: React.ReactNode;
+  let valColor = 'inherit';
+
+  if (typeof value === 'string') {
+    renderedValue = JSON.stringify(value);
+    valColor = '#95d8a6';
+  } else if (typeof value === 'number') {
+    renderedValue = String(value);
+    valColor = '#f4ca64';
+  } else if (typeof value === 'boolean') {
+    renderedValue = String(value);
+    valColor = '#88b4ff';
+  } else if (value === null || value === undefined) {
+    renderedValue = String(value);
+    valColor = '#6a7d9b';
+  } else {
+    renderedValue = String(value);
+  }
+
+  return (
+    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+      {keyName !== undefined && (
+        <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+          {keyName}:{' '}
+        </span>
+      )}
+      <span style={{ color: valColor }}>{renderedValue}</span>
+    </div>
+  );
+}
+
+function JsonTreeView({ rawValue }: { rawValue: string }) {
+  const { parsed, isJson } = useMemo(() => parseJsonValue(rawValue), [rawValue]);
+
+  if (isJson) {
+    return <JsonTreeNode value={parsed} depth={0} />;
+  }
+
+  return <code>{rawValue}</code>;
+}
+
 export default function CodeEditor() {
   const {
     code,
@@ -534,7 +693,7 @@ export default function CodeEditor() {
                             <tr key={`${selectedSnapshot?.step}-${name}`}>
                               <th scope="row">{name}</th>
                               <td>{value.type}</td>
-                              <td><code>{value.value}</code></td>
+                              <td><JsonTreeView rawValue={value.value} /></td>
                             </tr>
                           ))
                         ) : (
@@ -655,6 +814,9 @@ export default function CodeEditor() {
           height: '100%',
           maxHeight: 'calc(100vh - 120px)',
           minHeight: 0,
+            feat/time-travel-debug-49
+          gridTemplateRows: `auto auto 1fr 6px ${bottomHeight}px`,
+            main
           position: 'relative',
           overflow: 'hidden',
         }}
@@ -663,6 +825,7 @@ export default function CodeEditor() {
           <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ew-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
         )}
 
+        feat/time-travel-debug-49
         {/* Left — editor */}
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
           <div className="runnerToolbar">
@@ -689,6 +852,37 @@ export default function CodeEditor() {
               options={options}
             />
           </div>
+        <div className="runnerToolbar">
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+            {isRunning ? 'Tracing…' : 'Trace Execution'}
+          </button>
+          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
+        </div>
+
+        <p
+          style={{
+            marginTop: '8px',
+            fontSize: '0.85rem',
+            opacity: 0.8,
+            lineHeight: 1.4,
+          }}
+        >
+          Submitted code executes on the backend. Do not treat the current execution
+          environment as safely isolated for untrusted or hostile code.
+        </p>
+
+        <div className="monacoPane" style={{ minHeight: 0, overflow: 'hidden' }}>
+          <Editor
+            height="100%"
+            defaultLanguage="javascript"
+            value={code}
+            onChange={(value) => setCode(value ?? '')}
+            beforeMount={handleEditorWillMount}
+            onMount={handleEditorMount}
+            theme={editorTheme}
+            options={options}
+          />
+          main
         </div>
 
         {/* Horizontal Sash */}
@@ -712,7 +906,86 @@ export default function CodeEditor() {
           {outputPanelContent}
         </div>
       </div>
+        feat/time-travel-debug-49
       {renderShareModal()}
     </>
+    );
+  }
+
+  // ── RIGHT DOCK ──
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        height: '100%',
+        maxHeight: 'calc(100vh - 120px)',
+        minHeight: 0,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {isSashDragging && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ew-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
+      )}
+
+      {/* Left — editor */}
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        <div className="runnerToolbar">
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+            {isRunning ? 'Tracing…' : 'Trace Execution'}
+          </button>
+          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
+        </div>
+
+        <p
+          style={{
+            marginTop: '8px',
+            fontSize: '0.85rem',
+            opacity: 0.8,
+            lineHeight: 1.4,
+          }}
+        >
+          Submitted code executes on the backend. Do not treat the current execution
+          environment as safely isolated for untrusted or hostile code.
+        </p>
+
+        <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <Editor
+            height="100%"
+            defaultLanguage="javascript"
+            value={code}
+            onChange={(value) => setCode(value ?? '')}
+            beforeMount={handleEditorWillMount}
+            onMount={handleEditorMount}
+            theme={editorTheme}
+            options={options}
+          />
+        </div>
+      </div>
+
+      {/* Horizontal Sash */}
+      <div
+        onMouseDown={isMaximized || isCollapsed ? undefined : onRightSashMouseDown}
+        style={sashStyle(true)}
+      />
+
+      {/* Right — output */}
+      <div
+        className={`outputPane ${output?.ok ? 'success' : output ? 'failure' : ''}`}
+        style={{
+          width: `${rightWidth}px`,
+          minWidth: 0,
+          overflow: 'auto',
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {outputPanelContent}
+      </div>
+    </div>
+      main
   );
 }

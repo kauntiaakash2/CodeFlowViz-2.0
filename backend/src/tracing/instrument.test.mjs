@@ -359,3 +359,76 @@ run();
     await runSandbox(code, 5, { x: 5 }, { x: 5 });
   });
 });
+
+test('instrumentCode - sourceType is script (ESM syntax rejected at parse time)', async (t) => {
+  await t.test('throws on static import statement', () => {
+    const code = `
+import { readFile } from 'node:fs';
+const x = 1;
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|import/i,
+    });
+  });
+
+  await t.test('throws on dynamic import() expression in script mode', () => {
+    const code = `
+const x = import('node:fs');
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Dynamic import\(\) is not supported in script mode/i,
+    });
+  });
+
+  await t.test('throws on export statement', () => {
+    const code = `
+export const x = 1;
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|export/i,
+    });
+  });
+
+  await t.test('throws on export default', () => {
+    const code = `
+export default function foo() { return 1; }
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|export/i,
+    });
+  });
+
+  await t.test('ordinary script code with let, const, function still parses and instruments', () => {
+    const code = `
+function add(a, b) {
+  return a + b;
+}
+const result = add(1, 2);
+let x = 0;
+for (let i = 0; i < 10; i++) {
+  x += i;
+}
+`;
+    const { code: instrumented, hookCount } = instrumentCode(code);
+    assert.ok(hookCount > 0, 'Script code should be instrumented');
+    assert.doesNotThrow(() => new vm.Script(instrumented), 'Instrumented script code must compile in vm.Script');
+  });
+
+  await t.test('ordinary script code with class keyword parses and instruments', () => {
+    const code = `
+class Counter {
+  constructor() { this.count = 0; }
+  increment() { this.count++; }
+}
+const c = new Counter();
+c.increment();
+`;
+    const { code: instrumented, hookCount } = instrumentCode(code);
+    assert.ok(hookCount > 0, 'Script with classes should be instrumented');
+    assert.doesNotThrow(() => new vm.Script(instrumented), 'Instrumented class code must compile in vm.Script');
+  });
+});
