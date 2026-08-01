@@ -68,5 +68,5 @@ The sandbox is guarded by a comprehensive security and execution test suite (`ba
    - Asserts that `require` and Node.js core modules (like `fs`, `child_process`) are not accessible.
    - Asserts that `process` and process utilities are not defined.
    - Asserts that host constructor escapes (e.g. `console.log.constructor('return process')()`) are blocked.
-   - Asserts that dynamic dynamic imports are disallowed.
+   - Asserts that dynamic imports are disallowed.
 5. **Memory Exhaustion**: Simulates heavy memory loading to trigger worker termination and ensure the system recovers gracefully.

@@ -168,10 +168,26 @@ async function runJava(code, timeoutMs) {
   }
 }
 
+function safeGetErrorMessage(err, fallback) {
+  try {
+    if (err && typeof err === 'object') {
+      const msg = err.message;
+      if (typeof msg === 'string' && msg.trim() !== '') {
+        return msg;
+      }
+    } else if (typeof err === 'string' && err.trim() !== '') {
+      return err;
+    }
+  } catch {
+    // Ignore getter throw
+  }
+  return fallback;
+}
+
 process.on('unhandledRejection', (reason) => {
   parentPort.postMessage({
     ok: false,
-    error: reason && reason.message ? reason.message : 'Unhandled rejection in sandbox',
+    error: safeGetErrorMessage(reason, 'Unhandled rejection in sandbox'),
     logs: [],
     timeline: [],
   });
@@ -189,7 +205,7 @@ run()
   .then(res => parentPort.postMessage(res))
   .catch(err => parentPort.postMessage({
     ok: false,
-    error: err && err.message ? err.message : 'Unknown sandbox error',
+    error: safeGetErrorMessage(err, 'Unknown sandbox error'),
     logs: [],
     timeline: [],
   }));
