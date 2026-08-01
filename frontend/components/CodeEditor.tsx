@@ -3,6 +3,8 @@
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '@/context/PlaybackContext';
+// Side-effect import: configures MonacoEnvironment.getWorker before the editor mounts
+import { getWorkerStatus, type WorkerSetupStatus } from '@/lib/monacoWorkerSetup';
 
 type DockPosition = 'bottom' | 'right';
 
@@ -35,6 +37,9 @@ export default function CodeEditor() {
   const [isSashDragging, setIsSashDragging] = useState(false);
   const [dockPosition, setDockPosition] = useState<DockPosition>('bottom');
   const [isEditorReady, setIsEditorReady] = useState(false);
+  // Worker status: 'workers' = offloaded to Worker threads, 'fallback' = main-thread mode
+  const [workerStatus, setWorkerStatus] = useState<WorkerSetupStatus>('workers');
+  const [workerBannerDismissed, setWorkerBannerDismissed] = useState(false);
 
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
@@ -55,6 +60,11 @@ export default function CodeEditor() {
       attributeFilter: ['data-theme'],
     });
     return () => observer.disconnect();
+  }, []);
+
+  // Read worker status after mount (setup module runs synchronously before this)
+  useEffect(() => {
+    setWorkerStatus(getWorkerStatus());
   }, []);
   const selectedSnapshot = selectedSnapshotIndex === null ? null : snapshots[selectedSnapshotIndex] ?? null;
   const selectedVariables = selectedSnapshot ? Object.entries(selectedSnapshot.variables) : [];
@@ -267,6 +277,49 @@ export default function CodeEditor() {
     resetPanel();
   };
 
+  /** Dismissible banner shown when Monaco workers failed to load. */
+  const workerFallbackBanner = workerStatus === 'fallback' && !workerBannerDismissed ? (
+    <div
+      role="alert"
+      aria-live="polite"
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '6px 12px',
+        fontSize: '12px',
+        background: 'rgba(234, 179, 8, 0.12)',
+        borderBottom: '1px solid rgba(234, 179, 8, 0.35)',
+        color: 'var(--text-secondary, #94a3b8)',
+        gap: '8px',
+        flexShrink: 0,
+      }}
+    >
+      <span>
+        ⚠️ <strong>Editor running in compatibility mode.</strong>{' '}
+        Language services (IntelliSense, diagnostics) are unavailable because web
+        workers could not be loaded — possibly due to a Content Security Policy or
+        network restriction. Editing and execution remain fully functional.
+      </span>
+      <button
+        type="button"
+        aria-label="Dismiss worker warning"
+        onClick={() => setWorkerBannerDismissed(true)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          cursor: 'pointer',
+          color: 'inherit',
+          fontSize: '14px',
+          flexShrink: 0,
+          padding: '0 4px',
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  ) : null;
+
   // ✅ Shared button style using CSS variables
   const quickBtnStyle: React.CSSProperties = {
     background: 'transparent',
@@ -471,6 +524,8 @@ export default function CodeEditor() {
           <div style={{ position: 'fixed', inset: 0, zIndex: 99999, cursor: 'ns-resize', backgroundColor: 'transparent', userSelect: 'none' }} />
         )}
 
+        {workerFallbackBanner}
+
         <div className="runnerToolbar">
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
@@ -528,6 +583,8 @@ export default function CodeEditor() {
 
       {/* Left — editor */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        {workerFallbackBanner}
+
         <div className="runnerToolbar">
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
