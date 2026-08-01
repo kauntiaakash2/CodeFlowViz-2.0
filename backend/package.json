@@ -6,11 +6,8 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-perf/optimize-ast-50
-    "benchmark": "node src/tracing/benchmark.mjs",
-    "test": "node src/tracing/instrument.test.mjs"
+    "benchmark": "node --expose-gc src/tracing/benchmark.mjs",
     "test": "node --test src/requestQueue.test.mjs src/tracing/instrument.test.mjs"
-main
   },
   "dependencies": {
     "acorn": "^8.16.0",

@@ -259,9 +259,22 @@ export function instrumentCode(source) {
   const inserts = [];
   visit(source, ast, inserts);
 
-  const instrumented = [...inserts]
-    .sort((a, b) => (b.index - a.index) || (a.priority - b.priority))
-    .reduce((nextSource, insert) => `${nextSource.slice(0, insert.index)}${insert.text}${nextSource.slice(insert.index)}`, source);
+  // Sort forwards by index (ascending). For same-index inserts, 
+  // sort by priority descending so the higher priority text is added first.
+  const sortedInserts = [...inserts].sort((a, b) => (a.index - b.index) || (b.priority - a.priority));
+
+  const chunks = [];
+  let lastIndex = 0;
+  for (const insert of sortedInserts) {
+    if (insert.index > lastIndex) {
+      chunks.push(source.slice(lastIndex, insert.index));
+    }
+    chunks.push(insert.text);
+    lastIndex = insert.index;
+  }
+  chunks.push(source.slice(lastIndex));
+
+  const instrumented = chunks.join('');
 
   return { code: instrumented, hookCount: inserts.length };
 }

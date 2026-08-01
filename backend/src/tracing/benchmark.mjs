@@ -1,81 +1,50 @@
+import { instrumentCode } from './instrument.mjs';
 import { performance } from 'node:perf_hooks';
-import { instrumentCode as oldInstrument } from './instrument.old.mjs';
-import { instrumentCode as newInstrument } from './instrument.mjs';
 
-function generateLargeJS(targetSizeKb) {
-  let code = 'let x = 0;\n';
-  let counter = 0;
-  while (Buffer.byteLength(code, 'utf8') < targetSizeKb * 1024) {
-    code += `function fn_${counter}() {\n  let a = ${counter};\n  let b = a + 1;\n  for (let i = 0; i < 2; i++) {\n    a = a + i;\n  }\n  return a;\n}\nfn_${counter}();\n`;
-    counter++;
-  }
-  return code;
+// Ensure gc is exposed
+if (typeof global.gc !== 'function') {
+  console.error('Error: GC is not exposed. Please run node with the --expose-gc flag.');
+  process.exit(1);
 }
 
-function runBenchmark(label, code, instrumentFunc) {
-  // Force garbage collection if available
-  if (global.gc) {
-    global.gc();
-  }
+console.log('Generating test workload...');
+// Generate a moderately large JavaScript source file (~25,000 lines) with lots of assignments
+const lines = [];
+for (let i = 0; i < 5000; i++) {
+  lines.push(`function fn_${i}() {`);
+  lines.push(`  let x = ${i};`);
+  lines.push(`  x += 1;`);
+  lines.push(`  if (x > 10) x = 0; else x = 5;`);
+  lines.push(`  return x;`);
+  lines.push(`}`);
+}
+const sourceCode = lines.join('\n');
+console.log(`Generated workload size: ${(sourceCode.length / 1024 / 1024).toFixed(2)} MB (${lines.length} lines)`);
 
-  const startMemory = process.memoryUsage().heapUsed;
-  const startTime = performance.now();
-  
-  const result = instrumentFunc(code);
-  
-  const endTime = performance.now();
-  const endMemory = process.memoryUsage().heapUsed;
-
-  const durationMs = endTime - startTime;
-  const memoryUsedMb = (endMemory - startMemory) / 1024 / 1024;
-
-  return {
-    durationMs: durationMs.toFixed(2),
-    memoryMb: Math.max(0, memoryUsedMb).toFixed(2),
-    hookCount: result.hookCount
-  };
+// Warmup
+console.log('Warming up JIT...');
+for (let i = 0; i < 5; i++) {
+  instrumentCode('let a = 1; a = 2;');
 }
 
-async function start() {
-  console.log('Generating benchmark payloads...');
-  const payloads = {
-    '10KB': generateLargeJS(10),
-    '100KB': generateLargeJS(100),
-    '500KB': generateLargeJS(500)
-  };
+// Benchmark
+console.log('Running benchmark...');
+global.gc();
+const memBefore = process.memoryUsage().heapUsed;
+const t0 = performance.now();
 
-  console.log('Running benchmark suite...');
-  const rows = [];
+const result = instrumentCode(sourceCode);
 
-  for (const [size, code] of Object.entries(payloads)) {
-    console.log(`Profiling ${size} payload...`);
-    
-    // Run old instrumenter
-    const oldStats = runBenchmark('Old', code, oldInstrument);
+const t1 = performance.now();
+global.gc();
+const memAfter = process.memoryUsage().heapUsed;
 
-    // Run new instrumenter
-    const newStats = runBenchmark('New', code, newInstrument);
+const timeTaken = t1 - t0;
+const memoryUsed = memAfter - memBefore;
 
-    rows.push({
-      size,
-      oldTime: oldStats.durationMs,
-      newTime: newStats.durationMs,
-      oldMem: oldStats.memoryMb,
-      newMem: newStats.memoryMb,
-      oldHooks: oldStats.hookCount,
-      newHooks: newStats.hookCount
-    });
-  }
-
-  console.log('\n================ BENCHMARK RESULTS ================');
-  console.log('| Payload | Old Time (ms) | New Time (ms) | Old Heap (MB) | New Heap (MB) | Old Hooks | New Hooks |');
-  console.log('|---------|---------------|---------------|---------------|---------------|-----------|-----------|');
-  for (const row of rows) {
-    console.log(
-      `| ${row.size.padEnd(7)} | ${row.oldTime.padStart(13)} | ${row.newTime.padStart(13)} | ${row.oldMem.padStart(13)} | ${row.newMem.padStart(13)} | ${String(row.oldHooks).padStart(9)} | ${String(row.newHooks).padStart(9)} |`
-    );
-  }
-  console.log('====================================================\n');
-}
-
-start().catch(console.error);
+console.log('--------------------------------------');
+console.log('Benchmark Results:');
+console.log(`Hook Count:   ${result.hookCount}`);
+console.log(`Time Taken:   ${timeTaken.toFixed(2)} ms`);
+console.log(`Memory Delta: ${(memoryUsed / 1024 / 1024).toFixed(2)} MB`);
+console.log('--------------------------------------');
