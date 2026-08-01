@@ -212,6 +212,27 @@ button {
   opacity: 0.7;
 }
 
+.shareAction {
+  border-color: #a78bfa;
+  background: linear-gradient(180deg, #6d28d9, #4c1d95);
+  box-shadow: 0 0 22px rgba(109, 40, 217, 0.2);
+  cursor: pointer;
+  font-weight: 700;
+  text-align: center;
+  color: #ffffff;
+}
+
+[data-theme="light"] .shareAction {
+  border-color: var(--accent-blue);
+  background: var(--bg-secondary);
+  color: var(--accent-blue);
+}
+
+.shareAction:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .monacoPane {
   min-height: 0;
   overflow: hidden;

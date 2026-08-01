@@ -211,6 +211,7 @@ export default function CodeEditor() {
   const dragStartX = useRef(0);
   const dragStartHeight = useRef(0);
   const dragStartWidth = useRef(0);
+  const shareAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const observer = new MutationObserver(() => {
@@ -434,11 +435,35 @@ export default function CodeEditor() {
     resetPanel();
   };
 
+  const closeShareModal = () => {
+    if (shareAbortControllerRef.current) {
+      shareAbortControllerRef.current.abort();
+      shareAbortControllerRef.current = null;
+    }
+    setIsSharing(false);
+    setShareUrl(null);
+    setShareError(null);
+    setIsCopied(false);
+  };
+
   const shareSession = async () => {
     setIsSharing(true);
     setShareError(null);
     setShareUrl(null);
     setIsCopied(false);
+
+    if (shareAbortControllerRef.current) {
+      shareAbortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    shareAbortControllerRef.current = controller;
+
+    let isTimeout = false;
+    const timeoutId = setTimeout(() => {
+      isTimeout = true;
+      controller.abort();
+    }, 10000); // 10 seconds timeout
 
     try {
       const apiBaseUrl = executionApiUrl.replace(/\/api\/execute$/, '');
@@ -451,7 +476,10 @@ export default function CodeEditor() {
         // AST execution trace (snapshots, variables, loop checkpoints) needed
         // to fully restore the debugging session on the shared page.
         body: JSON.stringify({ code, output, selectedSnapshotIndex }),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -470,31 +498,40 @@ export default function CodeEditor() {
         console.warn('Could not auto-copy to clipboard:', err);
       }
     } catch (error) {
-      setShareError(error instanceof Error ? error.message : 'An unexpected error occurred.');
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === 'AbortError') {
+        if (isTimeout) {
+          setShareError('Request timed out. Please try again.');
+        } else {
+          // Cancelled by user closing modal, don't show error
+          return;
+        }
+      } else {
+        setShareError(error instanceof Error ? error.message : 'An unexpected error occurred.');
+      }
     } finally {
       setIsSharing(false);
+      shareAbortControllerRef.current = null;
     }
   };
 
   const renderShareModal = () => {
     if (!isSharing && !shareUrl && !shareError) return null;
     return (
-      <div className="modal-overlay" onClick={() => { if (!isSharing) { setShareUrl(null); setShareError(null); } }}>
+      <div className="modal-overlay" onClick={closeShareModal}>
         <div className="modal-content" onClick={(e) => e.stopPropagation()}>
           <div className="modal-header">
             <h2>Share Debugging Session</h2>
-            {!isSharing && (
-              <button
-                type="button"
-                className="modal-close-btn"
-                onClick={() => { setShareUrl(null); setShareError(null); }}
-                aria-label="Close dialog"
-              >
-                &times;
-              </button>
-            )}
+            <button
+              type="button"
+              className="modal-close-btn"
+              onClick={closeShareModal}
+              aria-label="Close dialog"
+            >
+              &times;
+            </button>
           </div>
-          
+
           {isSharing && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '1rem 0' }}>
               <div style={{ border: '3px solid #1f2f50', borderTop: '3px solid #7c3aed', borderRadius: '50%', width: '32px', height: '32px', animation: 'spin 1s linear infinite' }} />
