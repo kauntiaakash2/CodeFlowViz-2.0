@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import vm from 'node:vm';
 import { runInSandbox } from './runner.mjs';
 import { instrumentCode } from '../tracing/instrument.mjs';
 
@@ -63,17 +62,11 @@ test('Sandbox Security & Execution Suite', async (t) => {
   });
 
   await t.test('prevents sandbox escape via dynamic import', async () => {
-    const context = vm.createContext(Object.create(null), { name: 'codeflowviz-security-test' });
-    const { code } = instrumentCode("import('node:fs')");
-    const pendingImport = new vm.Script(`'use strict';\n${code}`, { filename: 'user-code.js' })
-      .runInContext(context, { timeout: 1000, breakOnSigint: false });
-
-    assert.equal(typeof pendingImport?.then, 'function', 'Dynamic import should return a thenable');
-    await assert.rejects(
-      pendingImport,
-      (error) => error?.code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'
-        && /dynamic import callback/i.test(error.message),
-      'Dynamic import must reject because the sandbox does not provide an import callback'
+    assert.throws(
+      () => instrumentCode("import('node:fs')"),
+      (error) => error?.name === 'SyntaxError'
+        && /dynamic import\(\) is not supported in script mode/i.test(error.message),
+      'Dynamic import must be rejected before untrusted code reaches the VM'
     );
   });
 
