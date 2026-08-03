@@ -1,4 +1,10 @@
-import type { TimelineEvent } from '@/hooks/usePlaybackScrubber';
+import type { TimelineEvent } from "@/hooks/usePlaybackScrubber";
+
+export interface Complexity {
+  available: boolean;
+  bigO: string | null;
+  explanation?: string | null;
+}
 
 export interface ExecutionResponse {
   ok: boolean;
@@ -9,28 +15,31 @@ export interface ExecutionResponse {
   instrumentation?: { hookCount: number };
   durationMs?: number;
   timedOut?: boolean;
+  complexity?: Complexity;
 }
 
-type ResponseStatus = Pick<Response, 'ok' | 'status'>;
+type ResponseStatus = Pick<Response, "ok" | "status">;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === "object" && value !== null;
 }
 
-function isExecutionLog(value: unknown): value is ExecutionResponse['logs'][number] {
+function isExecutionLog(
+  value: unknown,
+): value is ExecutionResponse["logs"][number] {
   return (
     isRecord(value) &&
-    typeof value.level === 'string' &&
-    typeof value.message === 'string'
+    typeof value.level === "string" &&
+    typeof value.message === "string"
   );
 }
 
 function isTimelineEvent(value: unknown): value is TimelineEvent {
   return (
     isRecord(value) &&
-    typeof value.step === 'number' &&
-    typeof value.line === 'number' &&
-    typeof value.event === 'string' &&
+    typeof value.step === "number" &&
+    typeof value.line === "number" &&
+    typeof value.event === "string" &&
     isRecord(value.variables)
   );
 }
@@ -38,31 +47,48 @@ function isTimelineEvent(value: unknown): value is TimelineEvent {
 export function normalizeExecutionResponse(
   payload: unknown,
   response: ResponseStatus,
+  
 ): ExecutionResponse {
-  if (!isRecord(payload) || typeof payload.ok !== 'boolean') {
-    throw new Error(`Execution API returned an invalid response (${response.status}).`);
+  if (!isRecord(payload) || typeof payload.ok !== "boolean") {
+    throw new Error(
+      `Execution API returned an invalid response (${response.status}).`,
+    );
   }
+  const complexity =
+  isRecord(payload.complexity)
+    ? {
+        available: Boolean(payload.complexity.available),
+        bigO:
+          typeof payload.complexity.bigO === "string"
+            ? payload.complexity.bigO
+            : null,
+        explanation:
+          typeof payload.complexity.explanation === "string"
+            ? payload.complexity.explanation
+            : null,
+      }
+    : undefined;
 
   const ok = response.ok && payload.ok;
   const error =
-    typeof payload.error === 'string'
+    typeof payload.error === "string"
       ? payload.error
       : ok
         ? undefined
         : response.ok
-          ? 'Execution failed.'
+          ? "Execution failed."
           : `Execution failed (${response.status}).`;
 
   const result =
     isRecord(payload.result) &&
-    typeof payload.result.type === 'string' &&
-    typeof payload.result.value === 'string'
+    typeof payload.result.type === "string" &&
+    typeof payload.result.value === "string"
       ? { type: payload.result.type, value: payload.result.value }
       : undefined;
 
   const instrumentation =
     isRecord(payload.instrumentation) &&
-    typeof payload.instrumentation.hookCount === 'number'
+    typeof payload.instrumentation.hookCount === "number"
       ? { hookCount: payload.instrumentation.hookCount }
       : undefined;
 
@@ -70,13 +96,16 @@ export function normalizeExecutionResponse(
     ok,
     error,
     result,
-    logs: Array.isArray(payload.logs) ? payload.logs.filter(isExecutionLog) : [],
+    logs: Array.isArray(payload.logs)
+      ? payload.logs.filter(isExecutionLog)
+      : [],
     timeline: Array.isArray(payload.timeline)
       ? payload.timeline.filter(isTimelineEvent)
       : [],
     instrumentation,
     durationMs:
-      typeof payload.durationMs === 'number' ? payload.durationMs : undefined,
+      typeof payload.durationMs === "number" ? payload.durationMs : undefined,
     timedOut: payload.timedOut === true,
+    complexity,
   };
 }
