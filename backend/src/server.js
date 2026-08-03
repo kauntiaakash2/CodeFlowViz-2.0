@@ -11,10 +11,37 @@ const DEFAULT_PORT = 4000;
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
-const allowedOrigin = process.env.CORS_ORIGIN ?? '*';
+
+function parseAllowedOrigins() {
+  const corsOriginEnv = process.env.CORS_ORIGIN;
+
+  if (!corsOriginEnv) {
+    console.warn('CORS_ORIGIN not set: cross-origin requests will be rejected. For local development, set CORS_ORIGIN=http://localhost:3000');
+    return [];
+  }
+
+  return corsOriginEnv.split(',').map((origin) => origin.trim()).filter(Boolean);
+}
+
+const allowedOrigins = parseAllowedOrigins();
+
+function isCorsAllowed(origin) {
+  return allowedOrigins.some((allowed) => {
+    if (allowed === '*') {
+      console.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
+      return false;
+    }
+    return allowed === origin;
+  });
+}
 
 app.use((request, response, next) => {
-  response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  const origin = request.get('Origin');
+
+  if (origin && isCorsAllowed(origin)) {
+    response.setHeader('Access-Control-Allow-Origin', origin);
+  }
+
   response.setHeader('Vary', 'Origin');
   response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
