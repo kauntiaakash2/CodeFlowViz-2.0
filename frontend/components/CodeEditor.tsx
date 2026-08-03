@@ -1,8 +1,9 @@
 'use client';
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '@/context/PlaybackContext';
+import { formatExecutionOutput } from '@/lib/formatExecutionOutput';
 
 type DockPosition = 'bottom' | 'right';
 
@@ -187,6 +188,37 @@ export default function CodeEditor() {
     }
     return 'void';
   });
+  const [copyStatus, setCopyStatus] = useState('');
+  const clearStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clearStatusTimeout.current) {
+        clearTimeout(clearStatusTimeout.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (!output) return;
+
+    if (clearStatusTimeout.current) {
+      clearTimeout(clearStatusTimeout.current);
+    }
+
+    try {
+      const text = formatExecutionOutput(output, snapshots.length);
+      await navigator.clipboard.writeText(text);
+      setCopyStatus('Output copied');
+    } catch {
+      setCopyStatus('Unable to copy output.');
+    }
+
+    clearStatusTimeout.current = setTimeout(() => {
+      setCopyStatus('');
+      clearStatusTimeout.current = null;
+    }, 2000);
+  };
   const [bottomHeight, setBottomHeight] = useState(200);
   const [rightWidth, setRightWidth] = useState(380);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -467,6 +499,9 @@ export default function CodeEditor() {
             <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>Idle</span>
           )}
         </div>
+        <div role="status" aria-live="polite">
+          {copyStatus}
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {/* Dock Toggle */}
@@ -478,6 +513,18 @@ export default function CodeEditor() {
           >
             {dockPosition === 'bottom' ? '⇒' : '⇓'}
           </button>
+
+          {output ? (
+            <button
+              type="button"
+              onClick={handleCopy}
+              title="Copy Output"
+              aria-label="Copy output"
+              style={quickBtnStyle}
+            >
+              📋
+            </button>
+          ) : null}
 
           {/* Restore */}
           {isMaximized || isCollapsed ? (
