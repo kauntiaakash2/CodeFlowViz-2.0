@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { runInSandbox } from './runner.mjs';
+import { instrumentCode } from '../tracing/instrument.mjs';
 
 test('Sandbox Security & Execution Suite', async (t) => {
   await t.test('handles basic execution successfully', async () => {
@@ -21,7 +23,7 @@ test('Sandbox Security & Execution Suite', async (t) => {
     const result = await runInSandbox(code, 300);
     assert.strictEqual(result.ok, false, 'Execution should fail due to timeout');
     assert.ok(
-      result.error.includes('timed out') || result.error.includes('exited with code'), 
+      result.error.includes('timed out') || result.error.includes('exited with code'),
       'Error message should indicate timeout or forced exit'
     );
   });
@@ -61,27 +63,18 @@ test('Sandbox Security & Execution Suite', async (t) => {
   });
 
   await t.test('prevents sandbox escape via dynamic import', async () => {
-    const code = `
-      let result;
-      try {
-        result = import('node:fs').then(() => 'escaped').catch(e => 'blocked: ' + e.message);
-      } catch (e) {
-        result = 'blocked: ' + e.message;
-      }
-      result;
-    `;
-    const result = await runInSandbox(code, 1000);
-    if (result.ok) {
-      assert.ok(
-        result.result.value.includes('blocked') || result.result.value.includes('Promise'),
-        'Dynamic import should be blocked or return error'
-      );
-    } else {
-      assert.ok(
-        result.error.includes('SyntaxError') || result.error.includes('import'),
-        'Dynamic import should fail parsing or execution'
-      );
-    }
+    const context = vm.createContext(Object.create(null), { name: 'codeflowviz-security-test' });
+    const { code } = instrumentCode("import('node:fs')");
+    const pendingImport = new vm.Script(`'use strict';\n${code}`, { filename: 'user-code.js' })
+      .runInContext(context, { timeout: 1000, breakOnSigint: false });
+
+    assert.equal(typeof pendingImport?.then, 'function', 'Dynamic import should return a thenable');
+    await assert.rejects(
+      pendingImport,
+      (error) => error?.code === 'ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING'
+        && /dynamic import callback/i.test(error.message),
+      'Dynamic import must reject because the sandbox does not provide an import callback'
+    );
   });
 
   await t.test('prevents sandbox escape via __trace constructor', async () => {
@@ -111,7 +104,7 @@ test('Sandbox Security & Execution Suite', async (t) => {
     const result = await runInSandbox(code, 1000);
     assert.strictEqual(result.ok, false, 'Execution should fail');
     assert.ok(
-      result.error.includes('require is not defined') || result.error.includes('is not defined'), 
+      result.error.includes('require is not defined') || result.error.includes('is not defined'),
       'Require should be undefined in sandbox'
     );
   });
@@ -135,10 +128,10 @@ test('Sandbox Security & Execution Suite', async (t) => {
     const result = await runInSandbox(code, 1000);
     assert.strictEqual(result.ok, false, 'Execution should fail');
     assert.ok(
-      result.error.includes('exited with code') || 
+      result.error.includes('exited with code') ||
       result.error.includes('timed out') ||
       result.error.includes('memory') ||
-      result.error.includes('allocation failed'), 
+      result.error.includes('allocation failed'),
       'Should fail due to crash or timeout'
     );
   });
@@ -151,7 +144,7 @@ test('Sandbox Security & Execution Suite', async (t) => {
     // Returns the rejected promise safely without crashing the backend
     assert.strictEqual(result.ok, true, 'Execution finishes, returning the Promise');
     assert.ok(
-      result.result.value.includes('<rejected>') || result.result.value.includes('Promise'), 
+      result.result.value.includes('<rejected>') || result.result.value.includes('Promise'),
       'Should safely serialize the rejected promise'
     );
   });
@@ -172,7 +165,7 @@ test('Sandbox Security & Execution Suite', async (t) => {
     const result = await runInSandbox(code, 500);
     assert.strictEqual(result.ok, false, 'Execution should fail due to syntax error');
     assert.ok(
-      result.error.includes('SyntaxError') || result.error.includes('Unexpected token'), 
+      result.error.includes('SyntaxError') || result.error.includes('Unexpected token'),
       'Syntax error should be caught'
     );
   });
