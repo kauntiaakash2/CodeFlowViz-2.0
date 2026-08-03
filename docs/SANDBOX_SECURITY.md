@@ -53,7 +53,7 @@ graph TD
 ### Threat D: Process Instability (Unhandled Crashes)
 * **Description**: Worker crashes or unhandled promise rejections propagate to the parent Express app and crash the entire web service.
 * **Mitigation**:
-  - **Isolation of Unhandled Rejections**: The worker thread listens for `unhandledRejection` and `uncaughtException` events. It serializes and reports these errors cleanly without letting them bubble up to the host process.
+  - **Isolation of Unhandled Rejections**: The worker thread listens for `unhandledRejection` events. It serializes and reports these errors cleanly without letting them bubble up to the host process.
   - **Worker Event Binding**: The runner handles worker `error` and `exit` events gracefully, releasing queued slots and returning structured error payloads to the client.
 
 ---
