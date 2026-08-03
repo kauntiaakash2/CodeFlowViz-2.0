@@ -1,6 +1,7 @@
 import { Parser } from 'acorn';
 
 const ecmaVersion = 'latest';
+const MAX_TRACE_HOOKS = 1000;
 
 function lineOf(source, index) {
   let line = 1;
@@ -137,42 +138,50 @@ function insertAt(inserts, index, text, priority = 0) {
   inserts.push({ index, text, priority });
 }
 
-function visit(source, node, inserts) {
+function reserveHook(state) {
+  if (state.hookCount >= MAX_TRACE_HOOKS) return false;
+  state.hookCount += 1;
+  return true;
+}
+
+function visit(source, node, inserts, state) {
   switch (node.type) {
     case 'Program':
-      node.body.forEach((child) => visit(source, child, inserts));
+      node.body.forEach((child) => visit(source, child, inserts, state));
       break;
     case 'BlockStatement':
-      node.body.forEach((child) => visit(source, child, inserts));
+      node.body.forEach((child) => visit(source, child, inserts, state));
       break;
     case 'FunctionDeclaration':
     case 'FunctionExpression':
     case 'ArrowFunctionExpression':
-      if (node.body?.type === 'BlockStatement') visit(source, node.body, inserts);
+      if (node.body?.type === 'BlockStatement') visit(source, node.body, inserts, state);
       break;
     case 'VariableDeclaration': {
-      insertAt(inserts, node.end, traceCall(source, node, 'assignment', getAssignedNames(node)));
+      if (reserveHook(state)) {
+        insertAt(inserts, node.end, traceCall(source, node, 'assignment', getAssignedNames(node)));
+      }
       break;
     }
     case 'ExpressionStatement': {
-      if (['AssignmentExpression', 'UpdateExpression'].includes(node.expression.type)) {
+      if (['AssignmentExpression', 'UpdateExpression'].includes(node.expression.type) && reserveHook(state)) {
         insertAt(inserts, node.end, traceCall(source, node, 'assignment', getAssignedNames(node)));
       }
-      visitExpression(source, node.expression, inserts);
+      visitExpression(source, node.expression, inserts, state);
       break;
     }
     case 'ForStatement':
     case 'ForInStatement':
     case 'ForOfStatement':
     case 'WhileStatement':
-      instrumentLoop(source, node, inserts);
+      instrumentLoop(source, node, inserts, state);
       break;
     case 'DoWhileStatement':
-      instrumentLoop(source, node, inserts);
+      instrumentLoop(source, node, inserts, state);
       break;
     case 'IfStatement':
-      instrumentBranch(source, node.consequent, inserts);
-      if (node.alternate) instrumentBranch(source, node.alternate, inserts);
+      instrumentBranch(source, node.consequent, inserts, state);
+      if (node.alternate) instrumentBranch(source, node.alternate, inserts, state);
       break;
     case 'ReturnStatement': {
       if (node.argument) {
@@ -183,7 +192,7 @@ function visit(source, node, inserts) {
             changes.forEach((expr) => {
               getAssignedNames(expr).forEach((name) => names.add(name));
             });
-            if (names.size > 0) {
+            if (names.size > 0 && reserveHook(state)) {
               const line = node.loc?.start?.line ?? lineOf(source, node.start);
               const tempVar = getSafeTempVarName(source);
               const captureCall = `__trace.capture(${line}, "assignment", ${makeSnapshot([...names])})`;
@@ -192,60 +201,84 @@ function visit(source, node, inserts) {
             }
           }
         }
-        visit(source, node.argument, inserts);
+        visit(source, node.argument, inserts, state);
       }
       break;
     }
 
     case 'LabeledStatement':
-      visit(source, node.body, inserts);
+      visit(source, node.body, inserts, state);
       break;
     case 'TryStatement':
-      visit(source, node.block, inserts);
-      if (node.handler?.body) visit(source, node.handler.body, inserts);
-      if (node.finalizer) visit(source, node.finalizer, inserts);
+      visit(source, node.block, inserts, state);
+      if (node.handler?.body) visit(source, node.handler.body, inserts, state);
+      if (node.finalizer) visit(source, node.finalizer, inserts, state);
       break;
     case 'SwitchStatement':
-      node.cases.forEach((switchCase) => switchCase.consequent.forEach((child) => visit(source, child, inserts)));
+      node.cases.forEach((switchCase) => switchCase.consequent.forEach((child) => visit(source, child, inserts, state)));
       break;
     default:
       break;
   }
 }
 
-function visitExpression(source, expression, inserts) {
+function visitExpression(source, expression, inserts, state) {
   if (!expression) return;
 
   if (expression.type === 'CallExpression') {
     expression.arguments.forEach((argument) => {
-      if (argument.type === 'FunctionExpression' || argument.type === 'ArrowFunctionExpression') visit(source, argument, inserts);
+      if (argument.type === 'FunctionExpression' || argument.type === 'ArrowFunctionExpression') {
+        visit(source, argument, inserts, state);
+      }
     });
   }
 }
 
-function instrumentLoop(source, node, inserts) {
+function instrumentLoop(source, node, inserts, state) {
   const loopTrace = traceCall(source, node, 'loop-iteration');
   if (node.body.type === 'BlockStatement') {
-    insertAt(inserts, node.body.start + 1, loopTrace, 1);
-    visit(source, node.body, inserts);
+    if (reserveHook(state)) insertAt(inserts, node.body.start + 1, loopTrace, 1);
+    visit(source, node.body, inserts, state);
     return;
   }
 
-  insertAt(inserts, node.body.start, `{${loopTrace}\n`, 1);
-  insertAt(inserts, node.body.end, '\n}', -1);
-  visit(source, node.body, inserts);
+  if (reserveHook(state)) {
+    insertAt(inserts, node.body.start, `{${loopTrace}\n`, 1);
+    insertAt(inserts, node.body.end, '\n}', -1);
+  }
+  visit(source, node.body, inserts, state);
 }
 
-function instrumentBranch(source, branch, inserts) {
+function instrumentBranch(source, branch, inserts, state) {
   if (!branch) return;
   if (branch.type === 'BlockStatement') {
-    visit(source, branch, inserts);
+    visit(source, branch, inserts, state);
     return;
   }
 
   insertAt(inserts, branch.start, '{\n', 1);
   insertAt(inserts, branch.end, '\n}', -1);
-  visit(source, branch, inserts);
+  visit(source, branch, inserts, state);
+}
+
+function rejectDynamicImport(node, source) {
+  if (!node || typeof node !== 'object') return;
+  if (node.type === 'ImportExpression') {
+    const line = node.loc?.start?.line ?? lineOf(source, node.start);
+    const err = new SyntaxError(`Dynamic import() is not supported in script mode (line ${line})`);
+    err.line = line;
+    throw err;
+  }
+  for (const key in node) {
+    if (key === 'parent') continue;
+    if (node[key] && typeof node[key] === 'object') {
+      if (Array.isArray(node[key])) {
+        for (const child of node[key]) rejectDynamicImport(child, source);
+      } else if (node[key].type) {
+        rejectDynamicImport(node[key], source);
+      }
+    }
+  }
 }
 
 export function instrumentCode(source) {
@@ -256,12 +289,28 @@ export function instrumentCode(source) {
     allowReturnOutsideFunction: false,
   });
 
+  rejectDynamicImport(ast, source);
+
   const inserts = [];
-  visit(source, ast, inserts);
+  const state = { hookCount: 0 };
+  visit(source, ast, inserts, state);
 
-  const instrumented = [...inserts]
-    .sort((a, b) => (b.index - a.index) || (a.priority - b.priority))
-    .reduce((nextSource, insert) => `${nextSource.slice(0, insert.index)}${insert.text}${nextSource.slice(insert.index)}`, source);
+  // Sort forwards by index (ascending). For same-index inserts,
+  // sort by priority descending so the higher priority text is added first.
+  const sortedInserts = [...inserts].sort((a, b) => (a.index - b.index) || (b.priority - a.priority));
 
-  return { code: instrumented, hookCount: inserts.length };
+  const chunks = [];
+  let lastIndex = 0;
+  for (const insert of sortedInserts) {
+    if (insert.index > lastIndex) {
+      chunks.push(source.slice(lastIndex, insert.index));
+    }
+    chunks.push(insert.text);
+    lastIndex = insert.index;
+  }
+  chunks.push(source.slice(lastIndex));
+
+  const instrumented = chunks.join('');
+
+  return { code: instrumented, hookCount: state.hookCount };
 }
