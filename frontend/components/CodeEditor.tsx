@@ -1,12 +1,174 @@
 'use client';
 
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
-import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '@/context/PlaybackContext';
+feat/monaco-workers-53
 // Side-effect import: configures MonacoEnvironment.getWorker before the editor mounts
 import { getWorkerStatus, type WorkerSetupStatus } from '@/lib/monacoWorkerSetup';
+import { formatExecutionOutput } from '@/lib/formatExecutionOutput';
+main
 
 type DockPosition = 'bottom' | 'right';
+
+function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } {
+  if (!rawValue) return { parsed: rawValue, isJson: false };
+  try {
+    const firstParse = JSON.parse(rawValue);
+    if (firstParse !== null && typeof firstParse === 'object') {
+      return { parsed: firstParse, isJson: true };
+    }
+    if (typeof firstParse === 'string') {
+      try {
+        const secondParse = JSON.parse(firstParse);
+        if (secondParse !== null && typeof secondParse === 'object') {
+          return { parsed: secondParse, isJson: true };
+        }
+      } catch {
+        // Not a double-encoded JSON string
+      }
+    }
+    return { parsed: firstParse, isJson: false };
+  } catch {
+    return { parsed: rawValue, isJson: false };
+  }
+}
+
+const INITIAL_VISIBLE_COUNT = 50;
+
+function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
+  const isObject = value !== null && typeof value === 'object';
+  const isArray = Array.isArray(value);
+  const entries = useMemo(() => {
+    if (!isObject) return [];
+    return isArray
+      ? (value as unknown[]).map((item, idx) => [String(idx), item] as [string, unknown])
+      : Object.entries(value as Record<string, unknown>);
+  }, [isObject, isArray, value]);
+
+  const count = entries.length;
+  const [isExpanded, setIsExpanded] = useState(() => depth < 2 && (!isArray || count <= INITIAL_VISIBLE_COUNT));
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
+
+  if (isObject) {
+    const typeLabel = isArray ? `Array[${count}]` : `Object {${count}}`;
+    const visibleEntries = entries.slice(0, visibleCount);
+    const hasMore = count > visibleCount;
+
+    return (
+      <div className="jsonTreeNode" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+        <button
+          type="button"
+          aria-expanded={isExpanded}
+          aria-label={`${keyName ? `${keyName}: ` : ''}${typeLabel}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(!isExpanded);
+          }}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            font: 'inherit',
+            color: 'inherit',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            userSelect: 'none',
+            textAlign: 'left',
+          }}
+        >
+          <span style={{ fontSize: '0.65rem', width: '10px', display: 'inline-block', opacity: 0.8 }}>
+            {isExpanded ? '▼' : '▶'}
+          </span>
+          {keyName !== undefined && (
+            <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+              {keyName}:{' '}
+            </span>
+          )}
+          <span style={{ opacity: 0.75, fontStyle: 'italic', fontSize: '0.78rem' }}>
+            {typeLabel}
+          </span>
+        </button>
+        {isExpanded && (
+          <div style={{ paddingLeft: '12px', borderLeft: '1px dashed var(--border-color, #1e1e35)', marginLeft: '4px', marginTop: '2px' }}>
+            {count === 0 ? (
+              <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>empty</span>
+            ) : (
+              <>
+                {visibleEntries.map(([childKey, childVal]) => (
+                  <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
+                ))}
+                {hasMore && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setVisibleCount((prev) => prev + INITIAL_VISIBLE_COUNT);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--accent-cyan, #06b6d4)',
+                      cursor: 'pointer',
+                      fontSize: '0.78rem',
+                      fontStyle: 'italic',
+                      padding: '2px 0',
+                      marginTop: '2px',
+                    }}
+                  >
+                    … show {count - visibleCount} more items
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  let renderedValue: React.ReactNode;
+  let valColor = 'inherit';
+
+  if (typeof value === 'string') {
+    renderedValue = JSON.stringify(value);
+    valColor = '#95d8a6';
+  } else if (typeof value === 'number') {
+    renderedValue = String(value);
+    valColor = '#f4ca64';
+  } else if (typeof value === 'boolean') {
+    renderedValue = String(value);
+    valColor = '#88b4ff';
+  } else if (value === null || value === undefined) {
+    renderedValue = String(value);
+    valColor = '#6a7d9b';
+  } else {
+    renderedValue = String(value);
+  }
+
+  return (
+    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+      {keyName !== undefined && (
+        <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
+          {keyName}:{' '}
+        </span>
+      )}
+      <span style={{ color: valColor }}>{renderedValue}</span>
+    </div>
+  );
+}
+
+function JsonTreeView({ rawValue }: { rawValue: string }) {
+  const { parsed, isJson } = useMemo(() => parseJsonValue(rawValue), [rawValue]);
+
+  if (isJson) {
+    return <JsonTreeNode value={parsed} depth={0} />;
+  }
+
+  return <code>{rawValue}</code>;
+}
 
 export default function CodeEditor() {
   const {
@@ -30,6 +192,37 @@ export default function CodeEditor() {
     }
     return 'void';
   });
+  const [copyStatus, setCopyStatus] = useState('');
+  const clearStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (clearStatusTimeout.current) {
+        clearTimeout(clearStatusTimeout.current);
+      }
+    };
+  }, []);
+
+  const handleCopy = async () => {
+    if (!output) return;
+
+    if (clearStatusTimeout.current) {
+      clearTimeout(clearStatusTimeout.current);
+    }
+
+    try {
+      const text = formatExecutionOutput(output, snapshots.length);
+      await navigator.clipboard.writeText(text);
+      setCopyStatus('Output copied');
+    } catch {
+      setCopyStatus('Unable to copy output.');
+    }
+
+    clearStatusTimeout.current = setTimeout(() => {
+      setCopyStatus('');
+      clearStatusTimeout.current = null;
+    }, 2000);
+  };
   const [bottomHeight, setBottomHeight] = useState(200);
   const [rightWidth, setRightWidth] = useState(380);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -361,6 +554,9 @@ export default function CodeEditor() {
             <span style={{ opacity: 0.7, fontSize: '0.78rem' }}>Idle</span>
           )}
         </div>
+        <div role="status" aria-live="polite">
+          {copyStatus}
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
           {/* Dock Toggle */}
@@ -372,6 +568,18 @@ export default function CodeEditor() {
           >
             {dockPosition === 'bottom' ? '⇒' : '⇓'}
           </button>
+
+          {output ? (
+            <button
+              type="button"
+              onClick={handleCopy}
+              title="Copy Output"
+              aria-label="Copy output"
+              style={quickBtnStyle}
+            >
+              📋
+            </button>
+          ) : null}
 
           {/* Restore */}
           {isMaximized || isCollapsed ? (
@@ -459,7 +667,7 @@ export default function CodeEditor() {
                             <tr key={`${selectedSnapshot?.step}-${name}`}>
                               <th scope="row">{name}</th>
                               <td>{value.type}</td>
-                              <td><code>{value.value}</code></td>
+                              <td><JsonTreeView rawValue={value.value} /></td>
                             </tr>
                           ))
                         ) : (
@@ -515,7 +723,7 @@ export default function CodeEditor() {
           height: '100%',
           maxHeight: 'calc(100vh - 120px)',
           minHeight: 0,
-          gridTemplateRows: `auto 1fr 6px ${bottomHeight}px`,
+          gridTemplateRows: `auto auto 1fr 6px ${bottomHeight}px`,
           position: 'relative',
           overflow: 'hidden',
         }}
@@ -530,8 +738,20 @@ export default function CodeEditor() {
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
+          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
+
+        <p
+          style={{
+            marginTop: '8px',
+            fontSize: '0.85rem',
+            opacity: 0.8,
+            lineHeight: 1.4,
+          }}
+        >
+          Submitted code executes on the backend. Do not treat the current execution
+          environment as safely isolated for untrusted or hostile code.
+        </p>
 
         <div className="monacoPane" style={{ minHeight: 0, overflow: 'hidden' }}>
           <Editor
@@ -589,8 +809,20 @@ export default function CodeEditor() {
           <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · isolated worker</span>
+          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
+
+        <p
+          style={{
+            marginTop: '8px',
+            fontSize: '0.85rem',
+            opacity: 0.8,
+            lineHeight: 1.4,
+          }}
+        >
+          Submitted code executes on the backend. Do not treat the current execution
+          environment as safely isolated for untrusted or hostile code.
+        </p>
 
         <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           <Editor

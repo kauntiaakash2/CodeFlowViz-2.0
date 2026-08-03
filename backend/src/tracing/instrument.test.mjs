@@ -359,3 +359,108 @@ run();
     await runSandbox(code, 5, { x: 5 }, { x: 5 });
   });
 });
+
+test('instrumentCode - Same-index ordering and equivalence', async (t) => {
+  await t.test('properly orders inserts at the same index (e.g. blockless if statement consequent)', () => {
+    const code = 'if (x) y = 1;';
+    const { code: instrumented } = instrumentCode(code);
+
+    // Expected nesting: the trace call (priority 0) must be inside the generated block (priority -1 at the end)
+    // So it should look like: if (x) {\ny = 1;\n;__trace.capture(...);\n}
+    // If priority ordering was wrong, it would look like: if (x) {\ny = 1;\n}\n;__trace.capture(...);
+    assert.match(
+      instrumented,
+      /if\s*\(x\)\s*\{\s*y = 1;\s*\n;__trace\.capture\([\s\S]*?\);\s*\n\}/,
+      'Trace call must be nested inside the block braces'
+    );
+  });
+
+  await t.test('nests multiple assignments in return statements correctly', () => {
+    const code = 'function f() { return x = y = 1; }';
+    const { code: instrumented } = instrumentCode(code);
+    assert.doesNotThrow(() => {
+      new vm.Script(instrumented);
+    }, 'Should compile without syntax errors');
+  });
+});
+
+test('instrumentCode - hook limit', () => {
+  const source = Array.from({ length: 1200 }, (_, index) => `let value${index} = ${index};`).join('\n');
+  const { code, hookCount } = instrumentCode(source);
+
+  assert.equal(hookCount, 1000);
+  assert.equal((code.match(/__trace\.capture/g) ?? []).length, 1000);
+});
+
+test('instrumentCode - sourceType is script (ESM syntax rejected at parse time)', async (t) => {
+  await t.test('throws on static import statement', () => {
+    const code = `
+import { readFile } from 'node:fs';
+const x = 1;
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|import/i,
+    });
+  });
+
+  await t.test('throws on dynamic import() expression in script mode', () => {
+    const code = `
+const x = import('node:fs');
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Dynamic import\(\) is not supported in script mode/i,
+    });
+  });
+
+  await t.test('throws on export statement', () => {
+    const code = `
+export const x = 1;
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|export/i,
+    });
+  });
+
+  await t.test('throws on export default', () => {
+    const code = `
+export default function foo() { return 1; }
+`;
+    assert.throws(() => instrumentCode(code), {
+      name: 'SyntaxError',
+      message: /Unexpected token|export/i,
+    });
+  });
+
+  await t.test('ordinary script code with let, const, function still parses and instruments', () => {
+    const code = `
+function add(a, b) {
+  return a + b;
+}
+const result = add(1, 2);
+let x = 0;
+for (let i = 0; i < 10; i++) {
+  x += i;
+}
+`;
+    const { code: instrumented, hookCount } = instrumentCode(code);
+    assert.ok(hookCount > 0, 'Script code should be instrumented');
+    assert.doesNotThrow(() => new vm.Script(instrumented), 'Instrumented script code must compile in vm.Script');
+  });
+
+  await t.test('ordinary script code with class keyword parses and instruments', () => {
+    const code = `
+class Counter {
+  constructor() { this.count = 0; }
+  increment() { this.count++; }
+}
+const c = new Counter();
+c.increment();
+`;
+    const { code: instrumented, hookCount } = instrumentCode(code);
+    assert.ok(hookCount > 0, 'Script with classes should be instrumented');
+    assert.doesNotThrow(() => new vm.Script(instrumented), 'Instrumented class code must compile in vm.Script');
+  });
+});
