@@ -38,6 +38,9 @@ const executeLimiter = rateLimit({
 });
 
 function normalizeTimeout(timeoutMs) {
+  if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return DEFAULT_TIMEOUT_MS;
+  return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)));
+}
 
 function healthResponse(_request, response) {
   response.status(200).json({
