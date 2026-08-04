@@ -10,12 +10,12 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function processExists(pid) {
+export function processExists(pid) {
   try {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    return err.code !== 'ESRCH' && err.code !== 'EPERM';
+    return err.code !== 'ESRCH';
   }
 }
 

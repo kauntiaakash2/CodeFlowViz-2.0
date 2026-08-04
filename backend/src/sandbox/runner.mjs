@@ -7,7 +7,7 @@ import { treeKill } from './processTreeKill.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const workerPath = path.join(__dirname, 'executeWorker.mjs');
+const defaultWorkerPath = path.join(__dirname, 'executeWorker.mjs');
 
 const SUPPORTED_LANGUAGES = new Set(['javascript', 'java']);
 const MAX_CONCURRENT_WORKERS = 4;
@@ -19,6 +19,11 @@ export { workerResources };
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function resolveWorkerPath() {
+  const override = process.env.CFV_WORKER_PATH;
+  return override ? path.resolve(override) : defaultWorkerPath;
 }
 
 async function removeDir(dir) {
@@ -33,14 +38,19 @@ async function removeDir(dir) {
 }
 
 export async function cleanupWorkerResources(resources) {
-  if (!resources) return;
+  if (!resources) return [];
+  const unconfirmed = [];
   for (const pid of resources.pids) {
-    await treeKill(pid);
+    if (await treeKill(pid)) {
+      resources.pids.delete(pid);
+    } else {
+      unconfirmed.push(pid);
+    }
   }
   if (resources.tempDir) {
     await removeDir(resources.tempDir);
   }
-  resources.pids.clear();
+  return unconfirmed;
 }
 
 export function runInSandbox(code, timeoutMs, language = 'javascript') {
@@ -63,7 +73,7 @@ export function executeInWorker(code, timeoutMs, language, startedAt = performan
   return new Promise((resolve) => {
     let worker;
     try {
-      worker = new Worker(workerPath, {
+      worker = new Worker(resolveWorkerPath(), {
         workerData: { code, timeoutMs, language },
         resourceLimits: {
           maxOldGenerationSizeMb: 32,
@@ -77,6 +87,9 @@ export function executeInWorker(code, timeoutMs, language, startedAt = performan
       return;
     }
 
+    const resources = { pids: new Set(), tempDir: undefined };
+    workerResources.set(worker, resources);
+
     let settled = false;
     let messageReceived = false;
     const killTimer = setTimeout(() => {
@@ -88,10 +101,11 @@ export function executeInWorker(code, timeoutMs, language, startedAt = performan
       settled = true;
       clearTimeout(killTimer);
       clearTimeout(graceTimer);
-      const resources = workerResources.get(worker);
+
+      await worker.terminate().catch(() => undefined);
+
       workerResources.delete(worker);
       await cleanupWorkerResources(resources);
-      await worker.terminate().catch(() => undefined);
       workerQueue.release();
       resolve({
         ...response,
@@ -103,19 +117,17 @@ export function executeInWorker(code, timeoutMs, language, startedAt = performan
     }
 
     worker.on('message', (message) => {
-      if (settled) return;
       if (message && message.type === 'child-processes') {
-        const existing = workerResources.get(worker) ?? { pids: new Set(), tempDir: undefined };
         for (const pid of message.pids) {
-          existing.pids.add(pid);
+          resources.pids.add(pid);
         }
         if (message.tempDir !== undefined) {
-          existing.tempDir = message.tempDir;
+          resources.tempDir = message.tempDir;
         }
-        workerResources.set(worker, existing);
         return;
       }
 
+      if (settled) return;
       if (!messageReceived) {
         messageReceived = true;
         finish(message);
