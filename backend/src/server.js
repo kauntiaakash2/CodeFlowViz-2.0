@@ -1,7 +1,12 @@
 import { estimateComplexity } from './tracing/complexityAnalyzer.mjs';
 import express from 'express';
-import { runInSandbox } from './sandbox/runner.mjs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runInSandbox, cleanupWorkerResources, workerResources } from './sandbox/runner.mjs';
 import rateLimit from 'express-rate-limit';
+import { treeKill } from './sandbox/processTreeKill.mjs';
+
+export { runInSandbox, cleanupWorkerResources, workerResources, treeKill };
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
@@ -95,6 +100,9 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
 });
 
-app.listen(port, () => {
-  console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
-});
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(path.resolve(process.argv[1])));
+if (isMainModule) {
+  app.listen(port, () => {
+    console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+  });
+}
