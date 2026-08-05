@@ -172,14 +172,35 @@ app.post('/api/execute', executeLimiter, async (request, response) => {
 });
 
 app.use((error, _request, response, _next) => {
-  if (error instanceof SyntaxError && 'body' in error) {
-    response.status(400).json({ ok: false, error: 'Request body must be valid JSON.' });
+  if (error?.status === 413 || error?.type === 'entity.too.large') {
+    response.status(413).json({
+      ok: false,
+      error: 'Request body exceeds the 64 KB limit.',
+      logs: [],
+      timeline: [],
+      durationMs: 0,
+      timedOut: false,
+    });
     return;
   }
 
-  response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
-});
+  if (error instanceof SyntaxError && 'body' in error) {
+    response.status(400).json({
+      ok: false,
+      error: 'Request body must be valid JSON.',
+    });
+    return;
+  }
 
-app.listen(port, () => {
-  console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+  response.status(500).json({
+    ok: false,
+    error: 'Unexpected backend error.',
+  });
 });
+export { app };
+
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  app.listen(port, () => {
+    console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+  });
+}
