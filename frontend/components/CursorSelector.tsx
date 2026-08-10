@@ -20,11 +20,12 @@ export default function CursorSelector() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedCursor, setSelectedCursor] = useState<CursorOption>(CURSOR_OPTIONS[0]);
   const [mousePos, setMousePos] = useState({ x: -100, y: -100 });
-  const [particles, setParticles] = useState<{ id: number; x: number; y: number; color: string }[]>([]);
+  const [particles, setParticles] = useState<{ id: number; x: number; y: number; color: string; createdAt: number }[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Apply cursor style and mouse tracking for visual effects
+  // Apply cursor style, cleanup body cursor, and handle particle lifetimes
   useEffect(() => {
+    const previousCursor = document.body.style.cursor;
     document.body.style.cursor = selectedCursor.value;
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -35,8 +36,8 @@ export default function CursorSelector() {
         const randomColor = colors[Math.floor(Math.random() * colors.length)];
         
         setParticles((prev) => [
-          ...prev.slice(-15), // keep last 15 particles
-          { id: Date.now() + Math.random(), x: e.clientX, y: e.clientY, color: randomColor },
+          ...prev.filter((p) => Date.now() - p.createdAt < 600), // expire particles older than 600ms
+          { id: Date.now() + Math.random(), x: e.clientX, y: e.clientY, color: randomColor, createdAt: Date.now() },
         ]);
       }
     };
@@ -44,9 +45,17 @@ export default function CursorSelector() {
     window.addEventListener("mousemove", handleMouseMove);
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
-      document.body.style.cursor = "default";
+      document.body.style.cursor = previousCursor;
     };
   }, [selectedCursor]);
+
+  // Clean up stale particles periodically
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setParticles((prev) => prev.filter((p) => Date.now() - p.createdAt < 600));
+    }, 100);
+    return () => clearInterval(interval);
+  }, []);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -61,6 +70,14 @@ export default function CursorSelector() {
 
   return (
     <div ref={dropdownRef} style={{ position: "relative", display: "inline-block" }}>
+      {/* Inject Keyframes for Orbit Spin */}
+      <style jsx global>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+
       {/* Glow Effect Element */}
       {selectedCursor.effect === "glow" && (
         <div
@@ -99,30 +116,35 @@ export default function CursorSelector() {
 
       {/* Trail / Sparkle Particles */}
       {(selectedCursor.effect === "trail" || selectedCursor.effect === "sparkle") &&
-        particles.map((p, idx) => (
-          <div
-            key={p.id}
-            style={{
-              position: "fixed",
-              top: p.y - 4,
-              left: p.x - 4,
-              width: selectedCursor.effect === "sparkle" ? "10px" : "8px",
-              height: selectedCursor.effect === "sparkle" ? "10px" : "8px",
-              borderRadius: selectedCursor.effect === "sparkle" ? "0%" : "50%",
-              background: p.color,
-              boxShadow: `0 0 8px ${p.color}`,
-              pointerEvents: "none",
-              zIndex: 9998,
-              opacity: (idx + 1) / particles.length,
-              transform: `scale(${(idx + 1) / particles.length})`,
-              transition: "opacity 0.2s ease, transform 0.2s ease",
-            }}
-          />
-        ))}
+        particles.map((p) => {
+          const age = Date.now() - p.createdAt;
+          const lifeProgress = 1 - age / 600; // fade out over 600ms
+          return (
+            <div
+              key={p.id}
+              style={{
+                position: "fixed",
+                top: p.y - 4,
+                left: p.x - 4,
+                width: selectedCursor.effect === "sparkle" ? "10px" : "8px",
+                height: selectedCursor.effect === "sparkle" ? "10px" : "8px",
+                borderRadius: selectedCursor.effect === "sparkle" ? "0%" : "50%",
+                background: p.color,
+                boxShadow: `0 0 8px ${p.color}`,
+                pointerEvents: "none",
+                zIndex: 9998,
+                opacity: lifeProgress > 0 ? lifeProgress : 0,
+                transform: `scale(${lifeProgress > 0 ? lifeProgress : 0})`,
+                transition: "opacity 0.1s linear, transform 0.1s linear",
+              }}
+            />
+          );
+        })}
 
       <button
         onClick={() => setIsOpen(!isOpen)}
-        aria-label="Select custom cursor style"
+        aria-label={`Cursor style: ${selectedCursor.name}`}
+        aria-expanded={isOpen}
         style={{
           display: "flex",
           alignItems: "center",
