@@ -3,6 +3,7 @@ import { PlaybackProvider } from '@/context/PlaybackContext';
 import FlowControls from '@/components/FlowControls';
 import CodeEditor from '@/components/CodeEditor';
 import ThemeToggle from '@/components/ThemeToggle'; 
+import CursorSelector from '@/components/CursorSelector';
 
 export default function HomePage() {
   return (
@@ -14,6 +15,7 @@ export default function HomePage() {
             <h1>Execution Cockpit</h1>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <CursorSelector />
             <ThemeToggle />
             <span style={{ fontSize: "0.9rem", color: "#98b6ef" }}>Execution Service Ready</span>
           </div>
