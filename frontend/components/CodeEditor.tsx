@@ -3,11 +3,13 @@
 import Editor, { type Monaco, type OnMount } from '@monaco-editor/react';
 import React, { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePlayback } from '@/context/PlaybackContext';
-feat/monaco-workers-53
-// Side-effect import: configures MonacoEnvironment.getWorker before the editor mounts
-import { getWorkerStatus, type WorkerSetupStatus } from '@/lib/monacoWorkerSetup';
+// Side-effect import: configures the local Monaco instance before the editor mounts.
+import {
+  initializeMonaco,
+  subscribeWorkerStatus,
+  type WorkerSetupStatus,
+} from '@/lib/monacoWorkerSetup';
 import { formatExecutionOutput } from '@/lib/formatExecutionOutput';
-main
 
 type DockPosition = 'bottom' | 'right';
 
@@ -255,9 +257,12 @@ export default function CodeEditor() {
     return () => observer.disconnect();
   }, []);
 
-  // Read worker status after mount (setup module runs synchronously before this)
+  // Keep the warning reactive to both synchronous construction failures and
+  // asynchronous worker loading errors.
   useEffect(() => {
-    setWorkerStatus(getWorkerStatus());
+    const unsubscribe = subscribeWorkerStatus(setWorkerStatus);
+    void initializeMonaco().catch(() => undefined);
+    return unsubscribe;
   }, []);
   const selectedSnapshot = selectedSnapshotIndex === null ? null : snapshots[selectedSnapshotIndex] ?? null;
   const selectedVariables = selectedSnapshot ? Object.entries(selectedSnapshot.variables) : [];
@@ -745,7 +750,9 @@ export default function CodeEditor() {
           height: '100%',
           maxHeight: 'calc(100vh - 120px)',
           minHeight: 0,
-          gridTemplateRows: `auto auto 1fr 6px ${bottomHeight}px`,
+          gridTemplateRows: workerFallbackBanner
+            ? `auto auto auto 1fr 6px ${bottomHeight}px`
+            : `auto auto 1fr 6px ${bottomHeight}px`,
           position: 'relative',
           overflow: 'hidden',
         }}
