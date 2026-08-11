@@ -10,6 +10,14 @@ vi.mock('@monaco-editor/react', () => ({
   default: () => <div data-testid="monaco-editor" />,
 }));
 
+vi.mock('@/lib/monacoWorkerSetup', () => ({
+  initializeMonaco: () => Promise.resolve(),
+  subscribeWorkerStatus: (listener: (status: 'workers') => void) => {
+    listener('workers');
+    return () => undefined;
+  },
+}));
+
 vi.mock('@/context/PlaybackContext', () => ({
   usePlayback: usePlaybackMock,
 }));
