@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prepare:monaco": "node scripts/copyMonacoAssets.mjs",
+    "predev": "npm run prepare:monaco",
     "dev": "next dev",
+    "prebuild": "npm run prepare:monaco",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
