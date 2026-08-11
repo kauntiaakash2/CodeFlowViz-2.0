@@ -17,47 +17,59 @@ const DEFAULT_PORT = 4000;
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
 
-function parseAllowedOrigins() {
-  const corsOriginEnv = process.env.CORS_ORIGIN;
-
+export function parseAllowedOrigins(corsOriginEnv = process.env.CORS_ORIGIN) {
   if (!corsOriginEnv) {
     console.warn('CORS_ORIGIN not set: cross-origin requests will be rejected. For local development, set CORS_ORIGIN=http://localhost:3000');
     return [];
   }
 
-  return corsOriginEnv.split(',').map((origin) => origin.trim()).filter(Boolean);
+  const origins = corsOriginEnv
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (origins.includes('*')) {
+    console.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
+    return [];
+  }
+
+  return [...new Set(origins)];
 }
 
-const allowedOrigins = parseAllowedOrigins();
+export function isCorsAllowed(origin, allowedOrigins) {
+  return allowedOrigins.includes(origin);
+}
 
-function isCorsAllowed(origin) {
-  return allowedOrigins.some((allowed) => {
-    if (allowed === '*') {
-      console.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
-      return false;
+export function createCorsMiddleware(allowedOrigins = parseAllowedOrigins()) {
+  return (request, response, next) => {
+    const origin = request.get('Origin');
+
+    response.vary('Origin');
+
+    if (origin && !isCorsAllowed(origin, allowedOrigins)) {
+      response.status(403).json({
+        ok: false,
+        error: 'Origin is not allowed by the server CORS policy.',
+      });
+      return;
     }
-    return allowed === origin;
-  });
+
+    if (origin) {
+      response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+
+    if (request.method === 'OPTIONS') {
+      response.sendStatus(204);
+      return;
+    }
+
+    next();
+  };
 }
 
-app.use((request, response, next) => {
-  const origin = request.get('Origin');
-
-  if (origin && isCorsAllowed(origin)) {
-    response.setHeader('Access-Control-Allow-Origin', origin);
-  }
-
-  response.setHeader('Vary', 'Origin');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (request.method === 'OPTIONS') {
-    response.sendStatus(204);
-    return;
-  }
-
-  next();
-});
+app.use(createCorsMiddleware());
 
 app.use(express.json({ limit: '64kb' }));
 
@@ -100,14 +112,14 @@ app.post('/api/execute', executeLimiter, async (request, response) => {
 
   // 1. Generate the Big-O Estimate from the AST (skip for non-JavaScript languages)
   const isJavaScript = language === 'javascript' || language === 'js';
-const complexityEstimate = isJavaScript
+  const complexityEstimate = isJavaScript
     ? estimateComplexity(code)
     : {
-          available: false,
-          bigO: null,
-          explanation: "Complexity analysis only available for JavaScript."
+        available: false,
+        bigO: null,
+        explanation: 'Complexity analysis only available for JavaScript.',
       };
-        const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
+  const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
 
   let result;
   try {
