@@ -5,10 +5,12 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { processExists } from './processTreeKill.mjs';
-
-const server = await import('../server.js');
-const { treeKill, cleanupWorkerResources, workerResources } = server;
+import { processExists, treeKill } from './processTreeKill.mjs';
+import {
+  cleanupWorkerResources,
+  runInSandbox,
+  workerResources,
+} from './runner.mjs';
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,15 +26,7 @@ function spawnLongRunningChild() {
 }
 
 function assertProcessGone(pid) {
-  try {
-    process.kill(pid, 0);
-    assert.fail(`PID ${pid} should have been killed`);
-  } catch (err) {
-    assert.ok(
-      err.code === 'ESRCH' || err.code === 'EPERM',
-      `Expected ESRCH/EPERM for PID ${pid}, got ${err.code}`
-    );
-  }
+  assert.strictEqual(processExists(pid), false, `PID ${pid} should not be running`);
 }
 
 test('treeKill - ignores PID <= 1 and non-integer values', async () => {
@@ -96,14 +90,14 @@ test('workerResources WeakMap exists and can store/retrieve resources', () => {
 
 test('integration - parent timeout confirms detached process group and temp dir are gone', async () => {
   const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cfv-fixture-'));
-  const javacPidFile = path.join(fixtureDir, 'javac.pid');
-  const javaPidFile = path.join(fixtureDir, 'java.pid');
+  const javacHeartbeatFile = path.join(fixtureDir, 'javac.heartbeat');
+  const javaHeartbeatFile = path.join(fixtureDir, 'java.heartbeat');
 
-  function fixtureScript(pidFile) {
+  function fixtureScript(heartbeatFile) {
     return [
       "import fs from 'node:fs';",
-      `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
-      'console.log(process.pid);',
+      `fs.appendFileSync(${JSON.stringify(heartbeatFile)}, 'x');`,
+      `setInterval(() => fs.appendFileSync(${JSON.stringify(heartbeatFile)}, 'x'), 20);`,
       'setInterval(() => {}, 100000);',
       '',
     ].join('\n');
@@ -111,8 +105,8 @@ test('integration - parent timeout confirms detached process group and temp dir 
 
   const javacFixture = path.join(fixtureDir, 'javac.mjs');
   const javaFixture = path.join(fixtureDir, 'java.mjs');
-  fs.writeFileSync(javacFixture, fixtureScript(javacPidFile));
-  fs.writeFileSync(javaFixture, fixtureScript(javaPidFile));
+  fs.writeFileSync(javacFixture, fixtureScript(javacHeartbeatFile));
+  fs.writeFileSync(javaFixture, fixtureScript(javaHeartbeatFile));
 
   const originalJavacCmd = process.env.CFV_JAVAC_CMD;
   const originalJavaCmd = process.env.CFV_JAVA_CMD;
@@ -123,31 +117,34 @@ test('integration - parent timeout confirms detached process group and temp dir 
   const before = new Set(fs.readdirSync(tmpRoot).filter((n) => n.startsWith('codeflowviz-')));
 
   let result;
-  let javacPid;
   let javaSpawned;
+  let heartbeatSizeAfterTimeout;
   try {
-    result = await server.runInSandbox('public class Main { public static void main(String[] a) {} }', 500, 'java');
-    javacPid = Number(fs.readFileSync(javacPidFile, 'utf8'));
-    javaSpawned = fs.existsSync(javaPidFile);
+    result = await runInSandbox('public class Main { public static void main(String[] a) {} }', 500, 'java');
+    javaSpawned = fs.existsSync(javaHeartbeatFile);
+    heartbeatSizeAfterTimeout = fs.statSync(javacHeartbeatFile).size;
   } finally {
     if (originalJavacCmd === undefined) delete process.env.CFV_JAVAC_CMD;
     else process.env.CFV_JAVAC_CMD = originalJavacCmd;
     if (originalJavaCmd === undefined) delete process.env.CFV_JAVA_CMD;
     else process.env.CFV_JAVA_CMD = originalJavaCmd;
-    fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 
   assert.strictEqual(result.timedOut, true, `Expected timedOut=true, got: ${JSON.stringify(result)}`);
   assert.ok(result.error && result.error.includes('timed out'), `Expected timeout error, got: ${result.error}`);
 
-  assert.ok(Number.isInteger(javacPid) && javacPid > 1, 'Fixture javac should have reported its PID');
   assert.strictEqual(javaSpawned, false, 'java fixture should not run while javac hangs');
-
-  assertProcessGone(javacPid);
+  await delay(200);
+  assert.strictEqual(
+    fs.statSync(javacHeartbeatFile).size,
+    heartbeatSizeAfterTimeout,
+    'Timed-out javac fixture must stop producing heartbeat output',
+  );
 
   const after = fs.readdirSync(tmpRoot).filter((n) => n.startsWith('codeflowviz-'));
   const leftovers = after.filter((n) => !before.has(n));
   assert.deepStrictEqual(leftovers, [], `Temp dirs should be removed after worker termination`);
+  fs.rmSync(fixtureDir, { recursive: true, force: true });
 });
 
 test('processExists - treats a live process as existing', () => {
@@ -195,7 +192,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
 function hangChild() {
-  const child = spawn(process.execPath, ['-e', "process.on('SIGTERM', function(){}); setInterval(function(){}, 60000)"], {
+  const child = spawn(process.execPath, ['-e', "const fs = require('node:fs'); const file = process.env.CFV_HEARTBEAT_FILE; process.on('SIGTERM', function(){}); setInterval(function(){ fs.appendFileSync(file, 'x'); }, 20)"], {
     detached: true,
     stdio: 'ignore',
   });
@@ -228,14 +225,17 @@ test('regression - timed-out worker cannot orphan children spawned during teardo
   const fakeWorkerPath = path.join(fixtureDir, 'lateSpawnWorker.mjs');
   const pidFile = path.join(fixtureDir, 'pids.txt');
   const goFile = path.join(fixtureDir, 'go.signal');
+  const heartbeatFile = path.join(fixtureDir, 'child.heartbeat');
   fs.writeFileSync(fakeWorkerPath, FAKE_WORKER_SOURCE);
 
   const originalWorkerPath = process.env.CFV_WORKER_PATH;
   const originalPidFile = process.env.CFV_PID_FILE;
   const originalGoFile = process.env.CFV_GO_FILE;
+  const originalHeartbeatFile = process.env.CFV_HEARTBEAT_FILE;
   process.env.CFV_WORKER_PATH = fakeWorkerPath;
   process.env.CFV_PID_FILE = pidFile;
   process.env.CFV_GO_FILE = goFile;
+  process.env.CFV_HEARTBEAT_FILE = heartbeatFile;
 
   let result;
   const goTimer = setTimeout(() => {
@@ -245,7 +245,7 @@ test('regression - timed-out worker cannot orphan children spawned during teardo
   }, 425);
 
   try {
-    result = await server.runInSandbox('ignored', 300, 'javascript');
+    result = await runInSandbox('ignored', 300, 'javascript');
   } finally {
     clearTimeout(goTimer);
     if (originalWorkerPath === undefined) delete process.env.CFV_WORKER_PATH;
@@ -254,18 +254,20 @@ test('regression - timed-out worker cannot orphan children spawned during teardo
     else process.env.CFV_PID_FILE = originalPidFile;
     if (originalGoFile === undefined) delete process.env.CFV_GO_FILE;
     else process.env.CFV_GO_FILE = originalGoFile;
+    if (originalHeartbeatFile === undefined) delete process.env.CFV_HEARTBEAT_FILE;
+    else process.env.CFV_HEARTBEAT_FILE = originalHeartbeatFile;
   }
 
   assert.strictEqual(result.timedOut, true, `Expected timed-out run, got: ${JSON.stringify(result)}`);
 
-  const pids = fs.existsSync(pidFile)
-    ? fs.readFileSync(pidFile, 'utf8').trim().split('\n').filter(Boolean).map(Number)
-    : [];
-  assert.ok(pids.length >= 1, 'Worker should have recorded at least one child PID before the timeout');
-  for (const pid of pids) {
-    assert.ok(Number.isInteger(pid) && pid > 1, `Recorded PID must be valid, got: ${pid}`);
-    assertProcessGone(pid);
-  }
+  assert.ok(fs.existsSync(heartbeatFile), 'Worker child should emit a heartbeat before timeout');
+  const heartbeatSizeAfterTimeout = fs.statSync(heartbeatFile).size;
+  await delay(200);
+  assert.strictEqual(
+    fs.statSync(heartbeatFile).size,
+    heartbeatSizeAfterTimeout,
+    'No child may continue producing output after worker teardown',
+  );
 
   fs.rmSync(fixtureDir, { recursive: true, force: true });
 });
