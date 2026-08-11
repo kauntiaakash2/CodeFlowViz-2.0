@@ -14,8 +14,12 @@ const MAX_CONCURRENT_WORKERS = 4;
 const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
 const workerResources = new WeakMap();
+const pendingCleanupResources = new Set();
+const scheduledCleanupRetries = new WeakSet();
+const cleanupRetryCounts = new WeakMap();
+const MAX_CLEANUP_RETRIES = 3;
 
-export { workerResources };
+export { pendingCleanupResources, workerResources };
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -37,6 +41,27 @@ async function removeDir(dir) {
   }
 }
 
+function scheduleCleanupRetry(resources) {
+  if (scheduledCleanupRetries.has(resources)) return;
+  const retryCount = cleanupRetryCounts.get(resources) ?? 0;
+  if (retryCount >= MAX_CLEANUP_RETRIES) return;
+
+  scheduledCleanupRetries.add(resources);
+  cleanupRetryCounts.set(resources, retryCount + 1);
+
+  const timer = setTimeout(async () => {
+    scheduledCleanupRetries.delete(resources);
+    const unconfirmed = await cleanupWorkerResources(resources);
+    if (unconfirmed.length === 0) {
+      pendingCleanupResources.delete(resources);
+      cleanupRetryCounts.delete(resources);
+    } else {
+      scheduleCleanupRetry(resources);
+    }
+  }, 250);
+  timer.unref?.();
+}
+
 export async function cleanupWorkerResources(resources) {
   if (!resources) return [];
   const unconfirmed = [];
@@ -50,6 +75,14 @@ export async function cleanupWorkerResources(resources) {
   if (resources.tempDir) {
     await removeDir(resources.tempDir);
   }
+
+  if (unconfirmed.length > 0) {
+    pendingCleanupResources.add(resources);
+  } else {
+    pendingCleanupResources.delete(resources);
+    cleanupRetryCounts.delete(resources);
+  }
+
   return unconfirmed;
 }
 
@@ -104,8 +137,11 @@ export function executeInWorker(code, timeoutMs, language, startedAt = performan
 
       await worker.terminate().catch(() => undefined);
 
+      const unconfirmed = await cleanupWorkerResources(resources);
+      if (unconfirmed.length > 0) {
+        scheduleCleanupRetry(resources);
+      }
       workerResources.delete(worker);
-      await cleanupWorkerResources(resources);
       workerQueue.release();
       resolve({
         ...response,
