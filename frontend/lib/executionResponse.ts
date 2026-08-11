@@ -44,6 +44,28 @@ function isTimelineEvent(value: unknown): value is TimelineEvent {
   );
 }
 
+function normalizeComplexity(value: unknown): Complexity | undefined {
+  if (!isRecord(value) || typeof value.available !== "boolean") {
+    return undefined;
+  }
+
+  const explanation =
+    typeof value.explanation === "string" ? value.explanation : null;
+
+  if (value.available) {
+    if (typeof value.bigO !== "string" || value.bigO.length === 0) {
+      return undefined;
+    }
+    return { available: true, bigO: value.bigO, explanation };
+  }
+
+  if (value.bigO !== null) {
+    return undefined;
+  }
+
+  return { available: false, bigO: null, explanation };
+}
+
 export function normalizeExecutionResponse(
   payload: unknown,
   response: ResponseStatus,
@@ -54,20 +76,7 @@ export function normalizeExecutionResponse(
       `Execution API returned an invalid response (${response.status}).`,
     );
   }
-  const complexity =
-  isRecord(payload.complexity)
-    ? {
-        available: Boolean(payload.complexity.available),
-        bigO:
-          typeof payload.complexity.bigO === "string"
-            ? payload.complexity.bigO
-            : null,
-        explanation:
-          typeof payload.complexity.explanation === "string"
-            ? payload.complexity.explanation
-            : null,
-      }
-    : undefined;
+  const complexity = normalizeComplexity(payload.complexity);
 
   const ok = response.ok && payload.ok;
   const error =
