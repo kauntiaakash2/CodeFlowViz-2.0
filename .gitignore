@@ -4,3 +4,4 @@ out
 npm-debug.log*
 .DS_Store
 backend/data/
+frontend/public/monaco/
