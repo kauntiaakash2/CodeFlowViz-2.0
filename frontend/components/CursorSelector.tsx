@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export type CursorOption = {
   name: string;
@@ -16,12 +16,27 @@ const CURSOR_OPTIONS: CursorOption[] = [
   { name: "Orbit", value: "grab", effect: "orbit" },
 ];
 
+const CURSOR_STORAGE_KEY = "codeflowviz:cursor-style";
+
 export default function CursorSelector() {
   const [isOpen, setIsOpen] = useState(false);
   const [selectedCursor, setSelectedCursor] = useState<CursorOption>(CURSOR_OPTIONS[0]);
   const [mousePos, setMousePos] = useState({ x: -100, y: -100 });
   const [particles, setParticles] = useState<{ id: number; x: number; y: number; color: string; createdAt: number }[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Restore a previously selected cursor without affecting server rendering.
+  useEffect(() => {
+    try {
+      const savedCursor = window.localStorage.getItem(CURSOR_STORAGE_KEY);
+      const matchingCursor = CURSOR_OPTIONS.find((option) => option.name === savedCursor);
+      if (matchingCursor) {
+        setSelectedCursor(matchingCursor);
+      }
+    } catch {
+      // Storage may be unavailable in privacy-restricted browser contexts.
+    }
+  }, []);
 
   // Apply cursor style, cleanup body cursor, and handle particle lifetimes
   useEffect(() => {
@@ -69,7 +84,15 @@ export default function CursorSelector() {
   }, []);
 
   return (
-    <div ref={dropdownRef} style={{ position: "relative", display: "inline-block" }}>
+    <div
+      ref={dropdownRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setIsOpen(false);
+        }
+      }}
+      style={{ position: "relative", display: "inline-block" }}
+    >
       {/* Inject Keyframes for Orbit Spin */}
       <style jsx global>{`
         @keyframes spin {
@@ -145,6 +168,8 @@ export default function CursorSelector() {
         onClick={() => setIsOpen(!isOpen)}
         aria-label={`Cursor style: ${selectedCursor.name}`}
         aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        aria-controls="cursor-style-options"
         style={{
           display: "flex",
           alignItems: "center",
@@ -181,6 +206,9 @@ export default function CursorSelector() {
 
       {isOpen && (
         <div
+          id="cursor-style-options"
+          role="listbox"
+          aria-label="Cursor styles"
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",
@@ -199,9 +227,16 @@ export default function CursorSelector() {
           {CURSOR_OPTIONS.map((opt) => (
             <button
               key={opt.name}
+              role="option"
+              aria-selected={selectedCursor.name === opt.name}
               onClick={() => {
                 setSelectedCursor(opt);
                 setIsOpen(false);
+                try {
+                  window.localStorage.setItem(CURSOR_STORAGE_KEY, opt.name);
+                } catch {
+                  // Keep the selector usable when storage is unavailable.
+                }
               }}
               style={{
                 background: selectedCursor.name === opt.name ? "var(--accent-blue, #7c3aed)33" : "transparent",
