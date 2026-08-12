@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,11 +59,15 @@ export async function POST(request: Request) {
     );
   }
 
+  const headerId = request.headers.get('x-request-id');
+  const requestId = (headerId && headerId.trim() !== '') ? headerId.trim() : crypto.randomUUID();
+
   try {
     const upstreamResponse = await fetch(executionApiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': request.headers.get('content-type') ?? 'application/json',
+        'x-request-id': requestId,
       },
       body: await request.text(),
       cache: 'no-store',

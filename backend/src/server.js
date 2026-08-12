@@ -5,6 +5,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { runInSandbox, cleanupWorkerResources, workerResources } from './sandbox/runner.mjs';
 import rateLimit from 'express-rate-limit';
 import { treeKill } from './sandbox/processTreeKill.mjs';
+import { logger } from './utils/logger.mjs';
+import { requestContextMiddleware } from './middleware/requestContext.mjs';
 
 export { runInSandbox, cleanupWorkerResources, workerResources, treeKill };
 
@@ -19,7 +21,7 @@ const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
 
 export function parseAllowedOrigins(corsOriginEnv = process.env.CORS_ORIGIN) {
   if (!corsOriginEnv) {
-    console.warn('CORS_ORIGIN not set: cross-origin requests will be rejected. For local development, set CORS_ORIGIN=http://localhost:3000');
+    logger.warn('CORS_ORIGIN not set: cross-origin requests will be rejected. For local development, set CORS_ORIGIN=http://localhost:3000');
     return [];
   }
 
@@ -29,7 +31,7 @@ export function parseAllowedOrigins(corsOriginEnv = process.env.CORS_ORIGIN) {
     .filter(Boolean);
 
   if (origins.includes('*')) {
-    console.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
+    logger.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
     return [];
   }
 
@@ -70,6 +72,8 @@ export function createCorsMiddleware(allowedOrigins = parseAllowedOrigins()) {
 }
 
 app.use(createCorsMiddleware());
+
+app.use(requestContextMiddleware);
 
 app.use(express.json({ limit: '64kb' }));
 
@@ -142,12 +146,13 @@ app.use((error, _request, response, _next) => {
     return;
   }
 
+  logger.error('Unhandled server error', error);
   response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
 });
 
 const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(path.resolve(process.argv[1])));
 if (isMainModule) {
   app.listen(port, () => {
-    console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+    logger.info(`CodeFlowViz backend listening on http://localhost:${port}`);
   });
 }
