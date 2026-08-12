@@ -6,6 +6,10 @@ import { usePlayback } from '@/context/PlaybackContext';
 
 type DockPosition = 'bottom' | 'right';
 
+// Issue #118: character limit for submitted code (backend remains final authority)
+const MAX_CODE_LENGTH = 20000;
+const WARNING_THRESHOLD = 18500;
+
 export default function CodeEditor() {
   const {
     code,
@@ -21,6 +25,12 @@ export default function CodeEditor() {
     selectedSnapshotIndex,
     setSelectedSnapshotIndex,
   } = playback;
+
+  // Issue #118: live character counter state
+  const codeLength = code.length;
+  const isOverCharLimit = codeLength > MAX_CODE_LENGTH;
+  const isNearCharLimit = !isOverCharLimit && codeLength >= WARNING_THRESHOLD;
+
   const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>(() => {
     if (typeof window !== 'undefined') {
       const theme = document.documentElement.getAttribute('data-theme');
@@ -294,6 +304,38 @@ export default function CodeEditor() {
     borderLeft: isHorizontal ? '1px solid #7c3aed' : 'none',
   });
 
+  // Issue #118: live character counter, shown near "Trace Execution" in both toolbars.
+  // Color is a secondary cue only — the status is also conveyed via visible text.
+  const charCounterColor = isOverCharLimit
+    ? '#ef4444'
+    : isNearCharLimit
+      ? '#f59e0b'
+      : 'var(--text-secondary)';
+
+  const characterCounter = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <span
+        aria-live="polite"
+        style={{
+          fontSize: '0.78rem',
+          color: charCounterColor,
+          fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace',
+        }}
+      >
+        {codeLength.toLocaleString()} / {MAX_CODE_LENGTH.toLocaleString()}
+      </span>
+      {isOverCharLimit ? (
+        <span style={{ fontSize: '0.78rem', color: charCounterColor }}>
+          Shorten the code to run it
+        </span>
+      ) : isNearCharLimit ? (
+        <span style={{ fontSize: '0.78rem', color: charCounterColor }}>
+          Approaching character limit
+        </span>
+      ) : null}
+    </div>
+  );
+
   // Output panel content shared between both dock modes
   const outputPanelContent = (
     <>
@@ -472,9 +514,10 @@ export default function CodeEditor() {
         )}
 
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning || isOverCharLimit}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
+          {characterCounter}
           <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
 
@@ -541,9 +584,10 @@ export default function CodeEditor() {
       {/* Left — editor */}
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'hidden' }}>
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning || isOverCharLimit}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
+          {characterCounter}
           <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
 
