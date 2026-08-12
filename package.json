@@ -20,6 +20,6 @@
     "ip-address": "10.3.1"
   },
   "dependencies": {
-    "ip-address": "^10.3.1"
+    "ip-address": "10.3.1"
   }
 }
