@@ -196,6 +196,31 @@ export default function CodeEditor() {
   });
   const [copyStatus, setCopyStatus] = useState('');
   const clearStatusTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const [timeoutMs, setTimeoutMs] = useState(1000);
+  const [lastUsedTimeoutMs, setLastUsedTimeoutMs] = useState(1000);
+  const [elapsedTimeMs, setElapsedTimeMs] = useState(0);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isRunning) {
+      setElapsedTimeMs(0);
+      const startTime = Date.now();
+      intervalRef.current = setInterval(() => {
+        setElapsedTimeMs(Date.now() - startTime);
+      }, 100);
+    } else {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [isRunning]);
 
   useEffect(() => {
     return () => {
@@ -650,7 +675,22 @@ export default function CodeEditor() {
         <div className="outputBody">
           {output ? (
             <>
-              {output.error ? <pre className="errorText">{output.error}</pre> : null}
+              {output.error ? (
+                output.timedOut ? (
+                  <div className="timeoutBanner" style={{ padding: '12px', background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.5)', borderRadius: '6px', color: '#fcd34d', marginBottom: '1rem' }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span aria-hidden="true">⏱️</span> Execution Timed Out
+                    </h3>
+                    <p style={{ margin: 0, fontSize: '0.85rem', lineHeight: '1.4' }}>
+                      The code exceeded the maximum allowed execution time of <strong>{lastUsedTimeoutMs / 1000} seconds</strong>.
+                      This usually indicates an infinite loop or highly inefficient logic.
+                    </p>
+                    <pre className="errorText" style={{ marginTop: '8px', marginBottom: 0 }}>{output.error}</pre>
+                  </div>
+                ) : (
+                  <pre className="errorText">{output.error}</pre>
+                )
+              ) : null}
               {output.result ? <pre>Result ({output.result.type}): {output.result.value}</pre> : null}
               {snapshots.length ? (
                 <>
@@ -764,10 +804,26 @@ export default function CodeEditor() {
         {workerFallbackBanner}
 
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
-            {isRunning ? 'Tracing…' : 'Trace Execution'}
-          </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="primaryAction" type="button" onClick={() => { setLastUsedTimeoutMs(timeoutMs); runCode(timeoutMs); }} disabled={isRunning}>
+              {isRunning ? `Tracing (${(elapsedTimeMs / 1000).toFixed(1)}s / ${timeoutMs / 1000}s)…` : 'Trace Execution'}
+            </button>
+            <select
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(Number(e.target.value))}
+              disabled={isRunning}
+              className="timeoutSelector"
+              style={{ padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color, #334155)', background: 'var(--bg-secondary, #1e293b)', color: 'inherit', fontSize: '0.85rem' }}
+              aria-label="Execution timeout"
+            >
+              <option value={1000}>1s timeout</option>
+              <option value={2000}>2s timeout</option>
+              <option value={3000}>3s timeout</option>
+              <option value={4000}>4s timeout</option>
+              <option value={5000}>5s timeout</option>
+            </select>
+          </div>
+          <span>AST hooks · JavaScript VM · backend execution</span>
         </div>
 
         <p
@@ -835,10 +891,26 @@ export default function CodeEditor() {
         {workerFallbackBanner}
 
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
-            {isRunning ? 'Tracing…' : 'Trace Execution'}
-          </button>
-          <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="primaryAction" type="button" onClick={() => { setLastUsedTimeoutMs(timeoutMs); runCode(timeoutMs); }} disabled={isRunning}>
+              {isRunning ? `Tracing (${(elapsedTimeMs / 1000).toFixed(1)}s / ${timeoutMs / 1000}s)…` : 'Trace Execution'}
+            </button>
+            <select
+              value={timeoutMs}
+              onChange={(e) => setTimeoutMs(Number(e.target.value))}
+              disabled={isRunning}
+              className="timeoutSelector"
+              style={{ padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border-color, #334155)', background: 'var(--bg-secondary, #1e293b)', color: 'inherit', fontSize: '0.85rem' }}
+              aria-label="Execution timeout"
+            >
+              <option value={1000}>1s timeout</option>
+              <option value={2000}>2s timeout</option>
+              <option value={3000}>3s timeout</option>
+              <option value={4000}>4s timeout</option>
+              <option value={5000}>5s timeout</option>
+            </select>
+          </div>
+          <span>AST hooks · JavaScript VM · backend execution</span>
         </div>
 
         <p

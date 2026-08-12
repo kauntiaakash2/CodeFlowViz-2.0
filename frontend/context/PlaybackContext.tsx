@@ -22,7 +22,7 @@ interface PlaybackContextType {
   output: ExecutionResponse | null;
   setOutput: React.Dispatch<React.SetStateAction<ExecutionResponse | null>>;
   isRunning: boolean;
-  runCode: () => Promise<void>;
+  runCode: (timeoutMs?: number) => Promise<void>;
   snapshots: TimelineEvent[];
   playback: ReturnType<typeof usePlaybackScrubber>;
 }
@@ -62,7 +62,7 @@ export function PlaybackProvider({
     initialIndex: initialSession?.selectedSnapshotIndex ?? null,
   });
 
-  const runCode = useCallback(async () => {
+  const runCode = useCallback(async (timeoutMs: number = 1000) => {
     if (isRequestPendingRef.current) return;
     isRequestPendingRef.current = true;
 
@@ -75,7 +75,7 @@ export function PlaybackProvider({
       const response = await fetch('/api/execute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, timeoutMs: 1000 }),
+        body: JSON.stringify({ code, timeoutMs }),
       });
       const payload: unknown = await response.json().catch(() => null);
       const result = normalizeExecutionResponse(payload, response);
