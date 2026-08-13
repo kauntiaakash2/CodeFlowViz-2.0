@@ -13,16 +13,24 @@ import { formatExecutionOutput } from '@/lib/formatExecutionOutput';
 
 type DockPosition = 'bottom' | 'right';
 
+// Issue #118: character limit for submitted code (backend remains final authority)
+const MAX_CODE_LENGTH = 20000;
+const WARNING_THRESHOLD = 18500;
+
 function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } {
   if (!rawValue) return { parsed: rawValue, isJson: false };
+
   try {
     const firstParse = JSON.parse(rawValue);
+
     if (firstParse !== null && typeof firstParse === 'object') {
       return { parsed: firstParse, isJson: true };
     }
+
     if (typeof firstParse === 'string') {
       try {
         const secondParse = JSON.parse(firstParse);
+
         if (secondParse !== null && typeof secondParse === 'object') {
           return { parsed: secondParse, isJson: true };
         }
@@ -30,6 +38,7 @@ function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } 
         // Not a double-encoded JSON string
       }
     }
+
     return { parsed: firstParse, isJson: false };
   } catch {
     return { parsed: rawValue, isJson: false };
@@ -38,18 +47,30 @@ function parseJsonValue(rawValue: string): { parsed: unknown; isJson: boolean } 
 
 const INITIAL_VISIBLE_COUNT = 50;
 
-function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: unknown; depth?: number }) {
+function JsonTreeNode({
+  keyName,
+  value,
+  depth = 0,
+}: {
+  keyName?: string;
+  value: unknown;
+  depth?: number;
+}) {
   const isObject = value !== null && typeof value === 'object';
   const isArray = Array.isArray(value);
+
   const entries = useMemo(() => {
     if (!isObject) return [];
+
     return isArray
       ? (value as unknown[]).map((item, idx) => [String(idx), item] as [string, unknown])
       : Object.entries(value as Record<string, unknown>);
   }, [isObject, isArray, value]);
 
   const count = entries.length;
-  const [isExpanded, setIsExpanded] = useState(() => depth < 2 && (!isArray || count <= INITIAL_VISIBLE_COUNT));
+  const [isExpanded, setIsExpanded] = useState(
+    () => depth < 2 && (!isArray || count <= INITIAL_VISIBLE_COUNT)
+  );
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
 
   if (isObject) {
@@ -58,7 +79,14 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
     const hasMore = count > visibleCount;
 
     return (
-      <div className="jsonTreeNode" style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+      <div
+        className="jsonTreeNode"
+        style={{
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: '0.82rem',
+          lineHeight: '1.4',
+        }}
+      >
         <button
           type="button"
           aria-expanded={isExpanded}
@@ -84,24 +112,42 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
           <span style={{ fontSize: '0.65rem', width: '10px', display: 'inline-block', opacity: 0.8 }}>
             {isExpanded ? '▼' : '▶'}
           </span>
+
           {keyName !== undefined && (
             <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
               {keyName}:{' '}
             </span>
           )}
+
           <span style={{ opacity: 0.75, fontStyle: 'italic', fontSize: '0.78rem' }}>
             {typeLabel}
           </span>
         </button>
+
         {isExpanded && (
-          <div style={{ paddingLeft: '12px', borderLeft: '1px dashed var(--border-color, #1e1e35)', marginLeft: '4px', marginTop: '2px' }}>
+          <div
+            style={{
+              paddingLeft: '12px',
+              borderLeft: '1px dashed var(--border-color, #1e1e35)',
+              marginLeft: '4px',
+              marginTop: '2px',
+            }}
+          >
             {count === 0 ? (
-              <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>empty</span>
+              <span style={{ opacity: 0.5, fontStyle: 'italic', fontSize: '0.78rem' }}>
+                empty
+              </span>
             ) : (
               <>
                 {visibleEntries.map(([childKey, childVal]) => (
-                  <JsonTreeNode key={childKey} keyName={childKey} value={childVal} depth={depth + 1} />
+                  <JsonTreeNode
+                    key={childKey}
+                    keyName={childKey}
+                    value={childVal}
+                    depth={depth + 1}
+                  />
                 ))}
+
                 {hasMore && (
                   <button
                     type="button"
@@ -151,7 +197,13 @@ function JsonTreeNode({ keyName, value, depth = 0 }: { keyName?: string; value: 
   }
 
   return (
-    <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: '0.82rem', lineHeight: '1.4' }}>
+    <div
+      style={{
+        fontFamily: 'JetBrains Mono, monospace',
+        fontSize: '0.82rem',
+        lineHeight: '1.4',
+      }}
+    >
       {keyName !== undefined && (
         <span style={{ fontWeight: 600, color: 'var(--accent-cyan, #06b6d4)' }}>
           {keyName}:{' '}
@@ -187,6 +239,12 @@ export default function CodeEditor() {
     selectedSnapshotIndex,
     setSelectedSnapshotIndex,
   } = playback;
+
+  // Issue #118: live character counter state
+  const codeLength = code.length;
+  const isOverCharLimit = codeLength > MAX_CODE_LENGTH;
+  const isNearCharLimit = !isOverCharLimit && codeLength >= WARNING_THRESHOLD;
+
   const [editorTheme, setEditorTheme] = useState<'void' | 'ice'>(() => {
     if (typeof window !== 'undefined') {
       const theme = document.documentElement.getAttribute('data-theme');
@@ -545,6 +603,38 @@ export default function CodeEditor() {
     borderLeft: isHorizontal ? '1px solid #7c3aed' : 'none',
   });
 
+  // Issue #118: live character counter, shown near "Trace Execution" in both toolbars.
+  // Color is a secondary cue only — the status is also conveyed via visible text.
+  const charCounterColor = isOverCharLimit
+    ? '#ef4444'
+    : isNearCharLimit
+      ? '#f59e0b'
+      : 'var(--text-secondary)';
+
+  const characterCounter = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <span
+        aria-live="polite"
+        style={{
+          fontSize: '0.78rem',
+          color: charCounterColor,
+          fontFamily: 'JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace',
+        }}
+      >
+        {codeLength.toLocaleString()} / {MAX_CODE_LENGTH.toLocaleString()}
+      </span>
+      {isOverCharLimit ? (
+        <span style={{ fontSize: '0.78rem', color: charCounterColor }}>
+          Shorten the code to run it
+        </span>
+      ) : isNearCharLimit ? (
+        <span style={{ fontSize: '0.78rem', color: charCounterColor }}>
+          Approaching character limit
+        </span>
+      ) : null}
+    </div>
+  );
+
   // Output panel content shared between both dock modes
   const outputPanelContent = (
     <>
@@ -764,9 +854,10 @@ export default function CodeEditor() {
         {workerFallbackBanner}
 
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning || isOverCharLimit}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
+          {characterCounter}
           <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
 
@@ -835,9 +926,10 @@ export default function CodeEditor() {
         {workerFallbackBanner}
 
         <div className="runnerToolbar">
-          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning}>
+          <button className="primaryAction" type="button" onClick={runCode} disabled={isRunning || isOverCharLimit}>
             {isRunning ? 'Tracing…' : 'Trace Execution'}
           </button>
+          {characterCounter}
           <span>AST hooks · JavaScript VM · 1s timeout · backend execution</span>
         </div>
 

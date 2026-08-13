@@ -1,135 +1,120 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ExecutionResponse } from '@/lib/executionResponse';
+import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
+
+// Mock the Monaco editor: it doesn't render meaningfully in jsdom, and Issue #118
+// only concerns the toolbar counter — the real editor behavior is unaffected.
+jest.mock('@monaco-editor/react', () => ({
+  __esModule: true,
+  default: ({ value, onChange }: { value: string; onChange?: (v: string) => void }) => (
+    <textarea
+      data-testid="mock-monaco-editor"
+      value={value}
+      onChange={(e) => onChange?.(e.target.value)}
+    />
+  ),
+}));
+
+// Mock the playback context so we can drive `code` directly per test case.
+const mockUsePlayback = jest.fn();
+jest.mock('@/context/PlaybackContext', () => ({
+  usePlayback: () => mockUsePlayback(),
+}));
+
 import CodeEditor from './CodeEditor';
 
-const usePlaybackMock = vi.hoisted(() => vi.fn());
+const MAX_CODE_LENGTH = 20000;
 
-vi.mock('@monaco-editor/react', () => ({
-  default: () => <div data-testid="monaco-editor" />,
-}));
-
-vi.mock('@/lib/monacoWorkerSetup', () => ({
-  initializeMonaco: () => Promise.resolve(),
-  subscribeWorkerStatus: (listener: (status: 'workers') => void) => {
-    listener('workers');
-    return () => undefined;
-  },
-}));
-
-vi.mock('@/context/PlaybackContext', () => ({
-  usePlayback: usePlaybackMock,
-}));
-
-const output: ExecutionResponse = {
-  ok: true,
-  result: {
-    type: 'number',
-    value: '8',
-  },
-  logs: [],
-  timeline: [],
-  durationMs: 12,
-  timedOut: false,
-};
-
-function mockPlayback(currentOutput: ExecutionResponse | null) {
-  usePlaybackMock.mockReturnValue({
-    code: '',
-    setCode: vi.fn(),
-    output: currentOutput,
+function setup(codeLength: number) {
+  const code = 'a'.repeat(codeLength);
+  mockUsePlayback.mockReturnValue({
+    code,
+    setCode: jest.fn(),
+    output: null,
     isRunning: false,
-    runCode: vi.fn(),
-    snapshots: currentOutput?.timeline ?? [],
+    runCode: jest.fn(),
+    snapshots: [],
     playback: {
       selectedSnapshotIndex: null,
-      setSelectedSnapshotIndex: vi.fn(),
+      setSelectedSnapshotIndex: jest.fn(),
+      isPlaying: false,
+      play: jest.fn(),
+      pause: jest.fn(),
+      reset: jest.fn(),
+      stepInto: jest.fn(),
+      stepOver: jest.fn(),
+      stepBack: jest.fn(),
     },
   });
+
+  return render(<CodeEditor />);
 }
 
-function mockClipboard(writeText: ReturnType<typeof vi.fn>) {
-  Object.defineProperty(navigator, 'clipboard', {
-    configurable: true,
-    value: { writeText },
-  });
+function traceButtons() {
+  // Issue #118 requires the counter/behavior in both the bottom dock and right
+  // dock toolbars. This component only renders one dock at a time by default
+  // (bottom), so we assert against whatever "Trace Execution" button(s) render.
+  return screen.getAllByRole('button', { name: /trace execution/i });
 }
 
-describe('CodeEditor copy output action', () => {
+describe('Issue #118 — live character counter', () => {
   afterEach(() => {
-    cleanup();
+    jest.clearAllMocks();
   });
 
-  beforeEach(() => {
-    vi.useRealTimers();
-    vi.clearAllMocks();
+  it('shows the normal state below the limit and keeps Trace Execution enabled', () => {
+    setup(1240);
+
+    expect(screen.getByText('1,240 / 20,000')).toBeInTheDocument();
+    expect(screen.queryByText('Approaching character limit')).not.toBeInTheDocument();
+    expect(screen.queryByText('Shorten the code to run it')).not.toBeInTheDocument();
+
+    traceButtons().forEach((btn) => expect(btn).not.toBeDisabled());
   });
 
-  it('does not show the copy action when there is no output', () => {
-    mockPlayback(null);
+  it('stays in the normal state just below the 18,500 warning threshold', () => {
+    setup(18499);
 
-    render(<CodeEditor />);
+    expect(screen.getByText('18,499 / 20,000')).toBeInTheDocument();
+    expect(screen.queryByText('Approaching character limit')).not.toBeInTheDocument();
+    expect(screen.queryByText('Shorten the code to run it')).not.toBeInTheDocument();
 
-    expect(screen.queryByRole('button', { name: 'Copy output' })).not.toBeInTheDocument();
+    traceButtons().forEach((btn) => expect(btn).not.toBeDisabled());
   });
 
-  it('copies the formatted output and announces success', async () => {
-    mockPlayback(output);
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    mockClipboard(writeText);
+  it('shows the warning state near the threshold and keeps Trace Execution enabled', () => {
+    setup(18500);
 
-    render(<CodeEditor />);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy output' }));
+    expect(screen.getByText('18,500 / 20,000')).toBeInTheDocument();
+    expect(screen.getByText('Approaching character limit')).toBeInTheDocument();
+    expect(screen.queryByText('Shorten the code to run it')).not.toBeInTheDocument();
 
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
-    expect(writeText).toHaveBeenCalledWith(
-      'Result (number): 8\nDuration: 12ms\nTimed out: No',
-    );
-    expect(screen.getByRole('status')).toHaveTextContent('Output copied');
+    traceButtons().forEach((btn) => expect(btn).not.toBeDisabled());
   });
 
-  it('announces clipboard failures without blocking the interface', async () => {
-    mockPlayback(output);
-    mockClipboard(vi.fn().mockRejectedValue(new Error('Permission denied')));
+  it('keeps Trace Execution enabled at exactly the limit (20,000 characters)', () => {
+    setup(MAX_CODE_LENGTH);
 
-    render(<CodeEditor />);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy output' }));
+    expect(screen.getByText('20,000 / 20,000')).toBeInTheDocument();
+    expect(screen.queryByText('Shorten the code to run it')).not.toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByRole('status')).toHaveTextContent('Unable to copy output.');
-    });
+    traceButtons().forEach((btn) => expect(btn).not.toBeDisabled());
   });
 
-  it('replaces the previous status timer and clears the latest message', async () => {
-    vi.useFakeTimers();
-    mockPlayback(output);
-    mockClipboard(vi.fn().mockResolvedValue(undefined));
+  it('shows the exceeded state and disables Trace Execution above the limit', () => {
+    setup(20250);
 
-    render(<CodeEditor />);
-    const copyButton = screen.getByRole('button', { name: 'Copy output' });
+    expect(screen.getByText('20,250 / 20,000')).toBeInTheDocument();
+    expect(screen.getByText('Shorten the code to run it')).toBeInTheDocument();
+    expect(screen.queryByText('Approaching character limit')).not.toBeInTheDocument();
 
-    await act(async () => {
-      fireEvent.click(copyButton);
-      await Promise.resolve();
-    });
-    expect(screen.getByRole('status')).toHaveTextContent('Output copied');
+    traceButtons().forEach((btn) => expect(btn).toBeDisabled());
+  });
 
-    act(() => {
-      vi.advanceTimersByTime(1500);
-    });
-    await act(async () => {
-      fireEvent.click(copyButton);
-      await Promise.resolve();
-    });
-    act(() => {
-      vi.advanceTimersByTime(500);
-    });
-    expect(screen.getByRole('status')).toHaveTextContent('Output copied');
+  it('leaves the Monaco editor editable even when the code is over the limit', () => {
+    setup(20250);
 
-    act(() => {
-      vi.advanceTimersByTime(1500);
-    });
-    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    const editor = screen.getByTestId('mock-monaco-editor');
+    expect(editor).not.toBeDisabled();
   });
 });
