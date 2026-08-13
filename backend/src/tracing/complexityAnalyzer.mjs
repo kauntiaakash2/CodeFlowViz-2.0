@@ -31,11 +31,33 @@ export function estimateComplexity(code) {
 
     walk(ast, 0);
 
-    if (maxDepth === 0) return "O(1)";
-    if (maxDepth === 1) return "O(n)";
-    return `O(n^${maxDepth})`;
+    if (maxDepth === 0) {
+    return {
+        available: true,
+        bigO: "O(1)",
+        explanation: "No loops detected."
+    };
+}
+
+if (maxDepth === 1) {
+    return {
+        available: true,
+        bigO: "O(n)",
+        explanation: "One loop detected."
+    };
+}
+
+return {
+    available: true,
+    bigO: `O(n^${maxDepth})`,
+    explanation: `${maxDepth} nested loops detected.`
+};
 
   } catch (error) {
-    return "Unknown"; // Failsafe if the code has syntax errors
-  }
+    return {
+        available: false,
+        bigO: null,
+        explanation: "Unable to analyze complexity due to syntax errors."
+    };
+}
 }

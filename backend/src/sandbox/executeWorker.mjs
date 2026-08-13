@@ -1,7 +1,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import vm from 'node:vm';
-import { inspect, promisify } from 'node:util';
-import { exec } from 'node:child_process';
+import { inspect } from 'node:util';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
@@ -9,8 +9,78 @@ import crypto from 'node:crypto';
 
 import { instrumentCode as instrumentJS } from '../tracing/instrument.mjs';
 import { instrumentCode as instrumentJava } from '../tracing/javaInstrumenter.mjs';
+import { treeKill } from './processTreeKill.mjs';
 
-const execAsync = promisify(exec);
+function resolveToolCommand(name) {
+  const override = process.env[`CFV_${name.toUpperCase()}_CMD`];
+  if (!override) return { file: name, args: [] };
+  try {
+    const parsed = JSON.parse(override);
+    if (Array.isArray(parsed) && typeof parsed[0] === 'string') {
+      return { file: parsed[0], args: parsed.slice(1) };
+    }
+  } catch {}
+  return { file: name, args: [] };
+}
+
+function createSpawnTracker(tempDir) {
+  const activePids = new Set();
+  let cleanupTempDir = tempDir;
+
+  function sendMetadata() {
+    if (parentPort) {
+      parentPort.postMessage({
+        type: 'child-processes',
+        pids: [...activePids],
+        tempDir: cleanupTempDir,
+      });
+    }
+  }
+
+  function spawnTracked(file, args = [], options = {}) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(file, args, {
+        ...options,
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      if (child.pid !== undefined) {
+        activePids.add(child.pid);
+        sendMetadata();
+      }
+
+      let stdout = '';
+      let stderr = '';
+
+      child.stdout.on('data', (data) => { stdout += data.toString(); });
+      child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+      const onClose = (code, signal) => {
+        if (code !== 0) {
+          const error = new Error(
+            `Command failed with exit code ${code}` +
+            (signal ? ` (signal: ${signal})` : '')
+          );
+          error.stdout = stdout;
+          error.stderr = stderr;
+          reject(error);
+        } else {
+          resolve({ stdout, stderr });
+        }
+      };
+
+      const onError = (err) => {
+        reject(err);
+      };
+
+      child.on('close', onClose);
+      child.on('error', onError);
+    });
+  }
+
+  return { spawnTracked, activePids, sendMetadata };
+}
 
 const MAX_LOGS = 50;
 const MAX_LOG_CHARS = 2_000;
@@ -68,12 +138,34 @@ function runJavaScript(code, timeoutMs) {
   const sandbox = Object.create(null);
 
   Object.defineProperties(sandbox, {
-    console: { value: createConsole(logs), enumerable: true },
-    __trace: { value: createTrace(timeline), enumerable: false },
+    _rawConsole: { value: createConsole(logs), enumerable: false, configurable: true },
+    _rawTrace: { value: createTrace(timeline), enumerable: false, configurable: true },
     globalThis: { value: sandbox, enumerable: false },
   });
 
   const context = vm.createContext(sandbox, { name: 'codeflowviz-sandbox' });
+
+  // Wrap host-provided functions inside the sandbox context to shield host constructors
+  vm.runInContext(`
+    (function() {
+      const rawConsole = globalThis._rawConsole;
+      const rawTrace = globalThis._rawTrace;
+      delete globalThis._rawConsole;
+      delete globalThis._rawTrace;
+
+      globalThis.console = Object.freeze({
+        log: function(...args) { return rawConsole.log(...args); },
+        info: function(...args) { return rawConsole.info(...args); },
+        warn: function(...args) { return rawConsole.warn(...args); },
+        error: function(...args) { return rawConsole.error(...args); }
+      });
+
+      globalThis.__trace = Object.freeze({
+        capture: function(line, event, variables) { return rawTrace.capture(line, event, variables); }
+      });
+    })();
+  `, context);
+
   const script = new vm.Script(`'use strict';\n${instrumentedCode}`, { filename: 'user-code.js' });
   
   const result = script.runInContext(context, { timeout: timeoutMs, breakOnSigint: false });
@@ -87,9 +179,15 @@ async function runJava(code, timeoutMs) {
 
   const runId = crypto.randomUUID();
   const tempDir = path.join(os.tmpdir(), `codeflowviz-${runId}`);
-  
+  const { spawnTracked, activePids, sendMetadata } = createSpawnTracker(tempDir);
+
+  const javac = resolveToolCommand('javac');
+  const java = resolveToolCommand('java');
+
   try {
     await fs.mkdir(tempDir, { recursive: true });
+
+    sendMetadata();
 
     // bridge class to catch our injected trace hooks
     const traceClassPath = path.join(tempDir, '_Trace.java');
@@ -106,8 +204,8 @@ async function runJava(code, timeoutMs) {
     const mainClassPath = path.join(tempDir, 'Main.java');
     await fs.writeFile(mainClassPath, instrumentedCode);
 
-    await execAsync('javac Main.java _Trace.java', { cwd: tempDir, timeout: 5000 });
-    const { stdout, stderr } = await execAsync('java Main', { cwd: tempDir, timeout: timeoutMs });
+    await spawnTracked(javac.file, [...javac.args, 'Main.java', '_Trace.java'], { cwd: tempDir });
+    const { stdout, stderr } = await spawnTracked(java.file, [...java.args, 'Main'], { cwd: tempDir });
 
     const outputLines = stdout.split('\n');
     let stepCount = 1;
@@ -141,15 +239,33 @@ async function runJava(code, timeoutMs) {
   } catch (error) {
     return { ok: false, error: error.message || 'Java execution failed', logs, timeline, instrumentation: { hookCount } };
   } finally {
-    // cleanup temp dir so we don't nuke the server disk
+    for (const pid of activePids) {
+      await treeKill(pid);
+    }
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+function safeGetErrorMessage(err, fallback) {
+  try {
+    if (err && typeof err === 'object') {
+      const msg = err.message;
+      if (typeof msg === 'string' && msg.trim() !== '') {
+        return msg;
+      }
+    } else if (typeof err === 'string' && err.trim() !== '') {
+      return err;
+    }
+  } catch {
+    // Ignore getter throw
+  }
+  return fallback;
 }
 
 process.on('unhandledRejection', (reason) => {
   parentPort.postMessage({
     ok: false,
-    error: reason instanceof Error ? reason.message : 'Unhandled rejection in sandbox',
+    error: safeGetErrorMessage(reason, 'Unhandled rejection in sandbox'),
     logs: [],
     timeline: [],
   });
@@ -167,7 +283,7 @@ run()
   .then(res => parentPort.postMessage(res))
   .catch(err => parentPort.postMessage({
     ok: false,
-    error: err instanceof Error ? err.message : 'Unknown sandbox error',
+    error: safeGetErrorMessage(err, 'Unknown sandbox error'),
     logs: [],
     timeline: [],
   }));

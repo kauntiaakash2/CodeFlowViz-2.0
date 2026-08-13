@@ -1,42 +1,75 @@
 import { estimateComplexity } from './tracing/complexityAnalyzer.mjs';
-import { RequestQueue } from './requestQueue.mjs';
 import express from 'express';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Worker } from 'node:worker_threads';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runInSandbox, cleanupWorkerResources, workerResources } from './sandbox/runner.mjs';
 import rateLimit from 'express-rate-limit';
+import { treeKill } from './sandbox/processTreeKill.mjs';
+
+export { runInSandbox, cleanupWorkerResources, workerResources, treeKill };
 
 const DEFAULT_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 5_000;
 const MIN_TIMEOUT_MS = 100;
 const MAX_CODE_LENGTH = 20_000;
 const DEFAULT_PORT = 4000;
-const SUPPORTED_LANGUAGES = new Set(['javascript', 'java']);
-const MAX_CONCURRENT_WORKERS = 4;
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const workerPath = path.join(__dirname, 'sandbox/executeWorker.mjs');
-
-const workerQueue = new RequestQueue(MAX_CONCURRENT_WORKERS);
 
 const app = express();
 const port = Number.parseInt(process.env.PORT ?? `${DEFAULT_PORT}`, 10);
-const allowedOrigin = process.env.CORS_ORIGIN ?? '*';
 
-app.use((request, response, next) => {
-  response.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  response.setHeader('Vary', 'Origin');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (request.method === 'OPTIONS') {
-    response.sendStatus(204);
-    return;
+export function parseAllowedOrigins(corsOriginEnv = process.env.CORS_ORIGIN) {
+  if (!corsOriginEnv) {
+    console.warn('CORS_ORIGIN not set: cross-origin requests will be rejected. For local development, set CORS_ORIGIN=http://localhost:3000');
+    return [];
   }
 
-  next();
-});
+  const origins = corsOriginEnv
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (origins.includes('*')) {
+    console.error('Security: CORS_ORIGIN contains wildcard "*" which is not allowed in this configuration');
+    return [];
+  }
+
+  return [...new Set(origins)];
+}
+
+export function isCorsAllowed(origin, allowedOrigins) {
+  return allowedOrigins.includes(origin);
+}
+
+export function createCorsMiddleware(allowedOrigins = parseAllowedOrigins()) {
+  return (request, response, next) => {
+    const origin = request.get('Origin');
+
+    response.vary('Origin');
+
+    if (origin && !isCorsAllowed(origin, allowedOrigins)) {
+      response.status(403).json({
+        ok: false,
+        error: 'Origin is not allowed by the server CORS policy.',
+      });
+      return;
+    }
+
+    if (origin) {
+      response.setHeader('Access-Control-Allow-Origin', origin);
+      response.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+      response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    }
+
+    if (request.method === 'OPTIONS') {
+      response.sendStatus(204);
+      return;
+    }
+
+    next();
+  };
+}
+
+app.use(createCorsMiddleware());
 
 app.use(express.json({ limit: '64kb' }));
 
@@ -51,80 +84,6 @@ const executeLimiter = rateLimit({
 function normalizeTimeout(timeoutMs) {
   if (typeof timeoutMs !== 'number' || Number.isNaN(timeoutMs)) return DEFAULT_TIMEOUT_MS;
   return Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, Math.trunc(timeoutMs)));
-}
-
-function runInSandbox(code, timeoutMs, language = 'javascript') {
-  const startedAt = performance.now();
-
-  if (!language) {
-    return Promise.resolve({ ok: false, error: '`language` is required.', logs: [], timeline: [], durationMs: 0, timedOut: false });
-  }
-
-  if (!SUPPORTED_LANGUAGES.has(language)) {
-    return Promise.resolve({ ok: false, error: `Unsupported language: "${language}". Supported: ${[...SUPPORTED_LANGUAGES].join(', ')}.`, logs: [], timeline: [], durationMs: 0, timedOut: false });
-  }
-
-  return workerQueue.acquire().then(() => {
-    return executeInWorker(code, timeoutMs, language, startedAt);
-  });
-}
-
-function executeInWorker(code, timeoutMs, language, startedAt) {
-  return new Promise((resolve) => {
-    let worker;
-    try {
-      worker = new Worker(workerPath, {
-        workerData: { code, timeoutMs, language },
-        resourceLimits: {
-          maxOldGenerationSizeMb: 32,
-          maxYoungGenerationSizeMb: 8,
-          stackSizeMb: 1,
-        },
-      });
-    } catch (err) {
-      workerQueue.release();
-      resolve({ ok: false, error: err.message, logs: [], timeline: [], durationMs: Math.round(performance.now() - startedAt), timedOut: false });
-      return;
-    }
-
-    let settled = false;
-    let messageReceived = false;
-    const killTimer = setTimeout(() => {
-      finish({ ok: false, error: `Execution timed out after ${timeoutMs}ms.` }, true);
-    }, timeoutMs + 100);
-
-    function finish(response, timedOut = false) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      clearTimeout(graceTimer);
-      worker.terminate().catch(() => undefined).finally(() => workerQueue.release());
-      resolve({
-        ...response,
-        logs: response.logs ?? [],
-        timeline: response.timeline ?? [],
-        durationMs: Math.round(performance.now() - startedAt),
-        timedOut,
-      });
-    }
-
-    worker.once('message', (message) => {
-      messageReceived = true;
-      finish(message);
-    });
-    worker.once('error', (error) => finish({ ok: false, error: error.message }));
-    worker.once('exit', (code) => {
-      if (!messageReceived) {
-        finish({ ok: false, error: code !== 0 ? `Sandbox worker exited with code ${code}.` : 'Worker exited without sending a result.' });
-      }
-    });
-
-    const graceTimer = setTimeout(() => {
-      if (!messageReceived && !settled) {
-        finish({ ok: false, error: 'Worker did not respond within the grace period.' });
-      }
-    }, timeoutMs + 200);
-  });
 }
 
 function healthResponse(_request, response) {
@@ -153,7 +112,13 @@ app.post('/api/execute', executeLimiter, async (request, response) => {
 
   // 1. Generate the Big-O Estimate from the AST (skip for non-JavaScript languages)
   const isJavaScript = language === 'javascript' || language === 'js';
-  const complexityEstimate = isJavaScript ? estimateComplexity(code) : { bigO: 'Unknown', explanation: 'Complexity analysis only available for JavaScript' };
+  const complexityEstimate = isJavaScript
+    ? estimateComplexity(code)
+    : {
+        available: false,
+        bigO: null,
+        explanation: 'Complexity analysis only available for JavaScript.',
+      };
   const normalizedTimeoutMs = normalizeTimeout(timeoutMs);
 
   let result;
@@ -180,6 +145,9 @@ app.use((error, _request, response, _next) => {
   response.status(500).json({ ok: false, error: 'Unexpected backend error.' });
 });
 
-app.listen(port, () => {
-  console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
-});
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === fileURLToPath(pathToFileURL(path.resolve(process.argv[1])));
+if (isMainModule) {
+  app.listen(port, () => {
+    console.log(`CodeFlowViz backend listening on http://localhost:${port}`);
+  });
+}

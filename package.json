@@ -13,6 +13,7 @@
     "build": "npm run build --workspace frontend",
     "start:frontend": "npm run start --workspace frontend",
     "start:backend": "npm run start --workspace backend",
-    "lint": "npm run lint --workspace frontend"
+    "lint": "npm run lint --workspace frontend",
+    "test": "npm test --workspace backend"
   }
 }

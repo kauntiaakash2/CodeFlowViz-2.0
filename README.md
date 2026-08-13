@@ -22,6 +22,23 @@
 
 ![CodeFlowViz 2.0 — visual JavaScript execution cockpit](docs/assets/CodeFlowViz_2.0_execution_cockpit.png)
 
+## Table of Contents
+
+- [What it does](#what-it-does)
+- [Where it helps](#where-it-helps)
+- [CodeFlowViz vs. a traditional debugger](#codeflowviz-vs-a-traditional-debugger)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+  - [Requirements](#requirements)
+  - [Install and run](#install-and-run)
+  - [Useful commands](#useful-commands)
+- [API](#api)
+- [Current scope and limitations](#current-scope-and-limitations)
+- [Deployment guidance](#deployment-guidance)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
 ## What it does
 
 Paste a JavaScript snippet, submit it to the backend execution service, and inspect how execution unfolds. CodeFlowViz combines a Monaco editor with a timeline and state inspector so that control flow is easier to understand than a stream of console output.
